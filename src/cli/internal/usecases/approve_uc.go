@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"sdd-cli/internal/domain"
+	"sdd-cli/internal/infra"
 	"sdd-cli/internal/ports"
 )
 
@@ -65,6 +66,24 @@ func (uc *ApproveUseCase) Execute(baseDir string, in ApproveInput) (*domain.Work
 
 	if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
 		return nil, fmt.Errorf("failed to save work item: %w", err)
+	}
+
+	// Create artifacts for newly unblocked phases
+	if err == nil && wf != nil {
+		artifactMgr := infra.NewArtifactManager()
+		templateVars := map[string]string{
+			"title":      item.Title,
+			"id":         item.ID,
+			"created_at": item.CreatedAt,
+			"type":       item.Type,
+		}
+
+		for _, ph := range wf.Phases {
+			if state, exists := item.Phases[ph.ID]; exists && state.Status == "ready" && state.Artifact != "" {
+				// Try to create artifacts for this phase if not already done
+				_ = artifactMgr.CreateArtifactsForPhase(baseDir, wf, ph.ID, in.WorkItemID, templateVars)
+			}
+		}
 	}
 
 	event := domain.NewEvent(in.WorkItemID, "approval.recorded", in.ApprovedBy, map[string]interface{}{

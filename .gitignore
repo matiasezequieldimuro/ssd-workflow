@@ -1,0 +1,15 @@
+# Generated embeddings (synchronized from src/.sdd at build time)
+src/cli/embeds/default_sdd/
+
+# Go binaries
+src/cli/sdd
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.env

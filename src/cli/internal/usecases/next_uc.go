@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"sdd-cli/internal/domain"
-	"sdd-cli/internal/infra"
 	"sdd-cli/internal/ports"
 )
 
@@ -59,39 +58,17 @@ func (uc *NextUseCase) Execute(baseDir, id string) (*NextAction, error) {
 	for _, ph := range wf.Phases {
 		state, exists := item.Phases[ph.ID]
 		if exists && (state.Status == "ready" || state.Status == "in_progress") {
-			// Si la fase está lista (ready), buscar la siguiente y desbloquearlo
+			// Si la fase está lista (ready), cambiar a in_progress
 			if state.Status == "ready" {
-				// Buscar el índice de la fase actual
-				currentIdx := -1
-				for i, p := range wf.Phases {
-					if p.ID == ph.ID {
-						currentIdx = i
-						break
-					}
+				// Cambiar fase actual de ready → in_progress
+				item.Phases[ph.ID] = domain.PhaseState{
+					Status:   "in_progress",
+					Artifact: state.Artifact,
 				}
 
-				// Si hay una fase siguiente, desbloquearla y crear sus artifacts
-				if currentIdx >= 0 && currentIdx+1 < len(wf.Phases) {
-					nextPhase := wf.Phases[currentIdx+1]
-					item.Phases[nextPhase.ID] = domain.PhaseState{
-						Status: "ready",
-					}
-					// Guardar el item actualizado
-					if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
-						return nil, fmt.Errorf("failed to update work item: %w", err)
-					}
-
-					// Crear artifacts para la siguiente fase
-					artifactMgr := infra.NewArtifactManager()
-					templateVars := map[string]string{
-						"title":      item.Title,
-						"id":         item.ID,
-						"created_at": item.CreatedAt,
-						"type":       item.Type,
-					}
-					if err := artifactMgr.CreateArtifactsForPhase(baseDir, wf, nextPhase.ID, item.ID, templateVars); err != nil {
-						return nil, fmt.Errorf("failed to create artifacts for phase %s: %w", nextPhase.ID, err)
-					}
+				// Guardar el item actualizado
+				if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
+					return nil, fmt.Errorf("failed to update work item: %w", err)
 				}
 			}
 
@@ -101,7 +78,7 @@ func (uc *NextUseCase) Execute(baseDir, id string) (*NextAction, error) {
 				Procedure:     ph.Procedure,
 				Artifact:      state.Artifact,
 				NeedsApproval: ph.Approval == "required",
-				Message:       fmt.Sprintf("Next active phase is '%s' (%s). Follow procedure '%s'.", ph.ID, state.Status, ph.Procedure),
+				Message:       fmt.Sprintf("Next active phase is '%s' (in_progress). Follow procedure '%s'.", ph.ID, ph.Procedure),
 			}, nil
 		}
 	}
