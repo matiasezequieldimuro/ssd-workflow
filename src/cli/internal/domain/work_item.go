@@ -42,9 +42,16 @@ type WorkItemWorkflow struct {
 }
 
 type WorkItemInput struct {
-	Source     string   `json:"source" yaml:"source"` // user_prompt, external_artifact, imported_artifact
-	Summary    string   `json:"summary" yaml:"summary"`
-	References []string `json:"references,omitempty" yaml:"references,omitempty"`
+	Source           string                     `json:"source" yaml:"source"` // user_prompt, external_artifact, imported_artifact
+	Summary          string                     `json:"summary" yaml:"summary"`
+	References       []string                   `json:"references,omitempty" yaml:"references,omitempty"`
+	ExternalArtifact *ExternalArtifactReference `json:"external_artifact,omitempty" yaml:"external_artifact,omitempty"`
+}
+
+type ExternalArtifactReference struct {
+	Artifact string `json:"artifact" yaml:"artifact"`
+	Path     string `json:"path" yaml:"path"`
+	SHA256   string `json:"sha256" yaml:"sha256"`
 }
 
 type PhaseState struct {
@@ -209,6 +216,9 @@ func (item *WorkItem) ApprovePhase(workflow *Workflow, phaseID string, actor Act
 	if !item.canMutatePhase(phase) {
 		return PhaseMutation{}, fmt.Errorf("%w: work item status is %s", ErrInvalidTransition, item.Status)
 	}
+	if err := ValidateActor(actor); err != nil {
+		return PhaseMutation{}, err
+	}
 	if actor.Kind != ActorHuman {
 		return PhaseMutation{}, ErrHumanActorRequired
 	}
@@ -233,6 +243,9 @@ func (item *WorkItem) RejectPhase(workflow *Workflow, phaseID string, actor Acto
 	}
 	if !item.canMutatePhase(phase) {
 		return PhaseMutation{}, fmt.Errorf("%w: work item status is %s", ErrInvalidTransition, item.Status)
+	}
+	if err := ValidateActor(actor); err != nil {
+		return PhaseMutation{}, err
 	}
 	if actor.Kind != ActorHuman {
 		return PhaseMutation{}, ErrHumanActorRequired
@@ -299,9 +312,13 @@ func (item *WorkItem) Complete(workflow *Workflow) error {
 }
 
 func (item *WorkItem) NextPhase(workflow *Workflow) (*NextPhase, error) {
+	orderedPhases, err := workflow.OrderedPhases()
+	if err != nil {
+		return nil, err
+	}
 	priorities := []PhaseStatus{PhaseAwaitingApproval, PhaseInProgress, PhaseReady}
 	for _, status := range priorities {
-		for _, phase := range workflow.Phases {
+		for _, phase := range orderedPhases {
 			state, exists := item.Phases[phase.ID]
 			if exists && state.Status == status {
 				return &NextPhase{Definition: phase, State: state}, nil

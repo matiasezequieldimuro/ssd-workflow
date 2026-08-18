@@ -23,6 +23,9 @@ func NewCompleteUseCase(workItemRepo ports.WorkItemRepository, workflowRepo port
 }
 
 func (uc *CompleteUseCase) Execute(baseDir string, input CompleteInput) (*domain.WorkItem, error) {
+	if err := domain.ValidateActor(input.Actor); err != nil {
+		return nil, err
+	}
 	item, workflow, err := loadWorkItemAndWorkflow(baseDir, input.WorkItemID, uc.workItemRepo, uc.workflowRepo)
 	if err != nil {
 		return nil, err

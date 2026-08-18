@@ -30,11 +30,12 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 
 	wiRepo := infra.NewFSWorkItemRepository()
 	wfRepo := infra.NewFSWorkflowRepository()
+	configRepo := infra.NewFSConfigRepository()
 
 	actor := domain.Actor{Kind: "human", ID: "matias"}
 
 	// 1. Start Work Item
-	startUC := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo)
+	startUC := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo, configRepo)
 	item, err := startUC.Execute(tmpDir, usecases.StartWorkItemInput{
 		ID:         "feat-test-lifecycle",
 		WorkflowID: "feature-standard",
@@ -51,6 +52,9 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	}
 	if item.Phases["prd"].Status != "in_progress" {
 		t.Errorf("Expected prd status 'in_progress', got '%s'", item.Phases["prd"].Status)
+	}
+	if item.Phases["implementation"].Artifact != "artifacts/implementation-report.md" {
+		t.Errorf("Expected workflow artifact path, got '%s'", item.Phases["implementation"].Artifact)
 	}
 
 	// 2. Status Check
@@ -243,6 +247,7 @@ func TestBypassModeStart(t *testing.T) {
 
 	wiRepo := infra.NewFSWorkItemRepository()
 	wfRepo := infra.NewFSWorkflowRepository()
+	configRepo := infra.NewFSConfigRepository()
 
 	// Create dummy external artifact
 	extArtPath := filepath.Join(tmpDir, "external-prd.md")
@@ -252,7 +257,7 @@ func TestBypassModeStart(t *testing.T) {
 
 	actor := domain.Actor{Kind: "human", ID: "matias"}
 
-	startUC := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo)
+	startUC := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo, configRepo)
 	item, err := startUC.Execute(tmpDir, usecases.StartWorkItemInput{
 		ID:           "feat-bypass",
 		WorkflowID:   "feature-standard",

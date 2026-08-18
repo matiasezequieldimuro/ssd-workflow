@@ -41,6 +41,7 @@ mi-proyecto/
 │   ├── schemas/                       # JSON Schema del contrato, para validación determinista
 │   │   ├── workflow.schema.json
 │   │   ├── work-item.schema.json
+│   │   ├── artifact.schema.json
 │   │   └── event.schema.json
 │   ├── workflows/                     # Workflows declarativos reutilizables
 │   │   ├── feature-standard.workflow.yaml
@@ -146,6 +147,8 @@ Los modos no cambian el workflow ni relajan gates. Sólo son una **política de 
 
 El modo es global (y puede ser sobrescrito por una instrucción explícita en la conversación), no se ata al work item ni altera su estado. Toda ejecución conserva en sus eventos el adaptador/estrategia realmente utilizada cuando esa trazabilidad esté disponible.
 
+La CLI usa `defaults.workflow` cuando `start` no recibe un workflow explícito. El flag `--workflow` siempre tiene precedencia sobre este default local.
+
 ## 5. Contrato de workflow
 
 Un workflow declara el grafo válido. Las dependencias se expresan por IDs de fase, no por nombres de archivos ni prompts. Los artefactos obligatorios son outputs de una fase y los procedimientos explican cómo producirlos.
@@ -217,6 +220,7 @@ artifacts:
 Reglas del grafo:
 
 - Un workflow es acíclico y cada `id` es único, kebab-case.
+- La progresión se calcula desde `requires`, no desde el orden físico del YAML. Si dos fases tienen la misma prioridad topológica, el desempate v0.1 es lexicográfico por ID.
 - `requires` significa que la fase requerida está en `approved`, `completed` o `accepted` cuando el artefacto fue aportado por el usuario.
 - `approval: required` convierte el estado de una fase generada en `awaiting_approval`; no basta que el archivo exista.
 - `approval: optional` permite que quien entrega la fase solicite explícitamente revisión humana; si no la solicita, la entrega completa la fase.
@@ -322,7 +326,7 @@ El work item se completa mediante una operación explícita cuando todas las fas
 
 Una corrección sustancial de un artefacto aprobado lo marca `superseded`, invalida dependientes configurados por el motor y requiere una nueva aprobación; no se permite editar silenciosamente un plan aprobado.
 
-Al iniciar desde un artefacto que aporta el usuario, sólo son elegibles los `entry_points` declarados por el workflow. La fase queda `accepted` y se registra su procedencia y hash; las fases anteriores se marcan `not_applicable` con un evento `phase_bypassed_by_external_input`. No existe un comando genérico de “skip phase”.
+Al iniciar desde un artefacto que aporta el usuario, sólo son elegibles los `entry_points` declarados por el workflow. El tipo de artifact se infiere desde `accepts` y `produces`; se registra path absoluto y hash SHA-256 en `input.external_artifact`. La fase queda `accepted` o `awaiting_approval` cuando el workflow exige gate; todos sus ancestros en el grafo se marcan `not_applicable`. No existe un comando genérico de “skip phase”.
 
 ## 8. Contrato mínimo de artefacto
 
@@ -346,6 +350,8 @@ sources:
 
 <!-- Contenido definido por templates/plan.md -->
 ```
+
+El front matter se valida contra `schemas/artifact.schema.json` antes de escribir. Los templates embebidos sólo se usan durante `sdd init`; desde ese momento `.sdd/templates/` es la fuente runtime y puede personalizarse por proyecto.
 
 Las plantillas deben pedir lo mínimo útil para tomar decisiones y verificar resultados, no replicar información que ya existe. Como línea base:
 
@@ -420,7 +426,7 @@ Estas reglas definen el comportamiento, aunque la CLI se implemente después:
 ## 13. Camino de implementación propuesto
 
 1. Crear las carpetas vacías, `config.yaml`, cinco workflows y sus plantillas mínimas.
-2. Publicar los tres JSON Schemas y tests de fixtures válidos/inválidos; esto fija el contrato antes de escribir la CLI.
+2. Publicar los cuatro JSON Schemas y tests de fixtures válidos/inválidos; esto fija el contrato antes de escribir la CLI.
 3. Implementar una CLI mínima: `init`, `start`, `status --json`, `next --json`, `begin`, `deliver`, `approve`, `complete`, `validate` y `record-event`.
 4. Ejercitar manualmente cada workflow con work items de ejemplo, incluidos rechazo, input externo y un intento inválido de implementar sin plan aprobado.
 5. Recién entonces crear el adaptador inicial y sus capacidades; posteriormente, memoria semántica, CodeGraph, métricas avanzadas y automatización de archive.

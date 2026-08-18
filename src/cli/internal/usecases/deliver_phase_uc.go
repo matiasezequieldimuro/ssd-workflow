@@ -24,6 +24,9 @@ func NewDeliverPhaseUseCase(workItemRepo ports.WorkItemRepository, workflowRepo 
 }
 
 func (uc *DeliverPhaseUseCase) Execute(baseDir string, input DeliverPhaseInput) (*domain.WorkItem, error) {
+	if err := domain.ValidateActor(input.Actor); err != nil {
+		return nil, err
+	}
 	item, workflow, err := loadWorkItemAndWorkflow(baseDir, input.WorkItemID, uc.workItemRepo, uc.workflowRepo)
 	if err != nil {
 		return nil, err

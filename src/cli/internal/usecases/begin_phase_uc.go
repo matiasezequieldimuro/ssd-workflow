@@ -23,6 +23,9 @@ func NewBeginPhaseUseCase(workItemRepo ports.WorkItemRepository, workflowRepo po
 }
 
 func (uc *BeginPhaseUseCase) Execute(baseDir string, input BeginPhaseInput) (*domain.WorkItem, error) {
+	if err := domain.ValidateActor(input.Actor); err != nil {
+		return nil, err
+	}
 	item, workflow, err := loadWorkItemAndWorkflow(baseDir, input.WorkItemID, uc.workItemRepo, uc.workflowRepo)
 	if err != nil {
 		return nil, err

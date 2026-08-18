@@ -1137,6 +1137,8 @@ El objetivo es evitar construir nuevas operaciones sobre invariantes incompletas
 
 **Hallazgos cerrados al completar la fase:** CLI-01, CLI-07, CLI-08, CLI-09, CLI-17, CLI-18 y CLI-19.
 
+**Estado al 2026-08-18:** completada. Los repositorios aplican los schemas locales de workflow, work item, artifact y event; los workflows se validan como DAGs y se recorren topológicamente; IDs, paths y symlinks quedan contenidos; los entry points externos se verifican y registran con SHA-256; los templates locales son la fuente runtime; y `defaults.workflow` se aplica salvo override explícito.
+
 ### Fase 3 — Integridad de persistencia
 
 1. Eliminar errores ignorados.

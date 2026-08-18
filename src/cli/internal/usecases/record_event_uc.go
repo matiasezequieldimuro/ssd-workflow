@@ -24,7 +24,11 @@ func NewRecordEventUseCase(repo ports.WorkItemRepository) *RecordEventUseCase {
 }
 
 func (uc *RecordEventUseCase) Execute(baseDir string, in RecordEventInput) error {
-	if !uc.workItemRepo.WorkItemExists(baseDir, in.WorkItemID) {
+	exists, err := uc.workItemRepo.WorkItemExists(baseDir, in.WorkItemID)
+	if err != nil {
+		return err
+	}
+	if !exists {
 		return domain.ErrWorkItemNotFound
 	}
 

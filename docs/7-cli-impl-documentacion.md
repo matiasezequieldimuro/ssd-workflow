@@ -183,7 +183,7 @@ sdd start feat-023 \
 | Flag | Obligatorio | Default | Descripción |
 | :--- | :--- | :--- | :--- |
 | `--title` / `-t` | ✅ | — | Título del work item |
-| `--workflow` / `-w` | ❌ | `feature-standard` | ID del workflow a usar |
+| `--workflow` / `-w` | ❌ | `defaults.workflow` de `.sdd/config.yaml` | ID del workflow a usar |
 | `--summary` / `-s` | ❌ | — | Resumen del input inicial |
 | `--from-artifact` | ❌ | — | Ruta a un artefacto externo existente |
 | `--phase` | ❌* | — | Fase de entrada al usar `--from-artifact` |
@@ -340,7 +340,7 @@ graph LR
 
 | Prioridad | Paso | Descripción |
 | :--- | :--- | :--- |
-| 🔴 Alta | **`sdd validate`** | Validar `manifest.yaml` contra los JSON Schemas de `.sdd/schemas/` antes de cualquier operación mutante |
+| 🔴 Alta | **`sdd validate`** | Exponer una validación explícita bajo demanda; las operaciones actuales ya validan schemas y semántica al cargar/persistir |
 | 🔴 Alta | **Integración del agente orquestador** | Instruir al agente (via `AGENTS.md` o skill) para que invoque la CLI como autoridad de estado |
 | 🟡 Media | **`sdd reject`** | Rechazar una fase con motivo, bloqueando el flujo hasta nueva generación |
 | 🟡 Media | **`sdd archive <id>`** | Mover un work item completado de `active/` a `archive/YYYY-MM-DD-<id>/` |

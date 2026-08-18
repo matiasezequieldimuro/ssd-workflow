@@ -28,7 +28,8 @@ var startCmd = &cobra.Command{
 		id := args[0]
 		wiRepo := infra.NewFSWorkItemRepository()
 		wfRepo := infra.NewFSWorkflowRepository()
-		uc := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo)
+		configRepo := infra.NewFSConfigRepository()
+		uc := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo, configRepo)
 
 		actor := domain.Actor{
 			Kind: domain.ActorKind(actorKind),
@@ -52,7 +53,7 @@ var startCmd = &cobra.Command{
 }
 
 func init() {
-	startCmd.Flags().StringVarP(&startWorkflow, "workflow", "w", "feature-standard", "Workflow ID")
+	startCmd.Flags().StringVarP(&startWorkflow, "workflow", "w", "", "Workflow ID; defaults to .sdd/config.yaml")
 	startCmd.Flags().StringVarP(&startTitle, "title", "t", "", "Work item title")
 	startCmd.Flags().StringVarP(&startSummary, "summary", "s", "", "Initial input summary")
 	startCmd.Flags().StringVar(&startFromArt, "from-artifact", "", "Path to pre-existing artifact")
