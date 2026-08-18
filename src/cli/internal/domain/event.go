@@ -1,0 +1,31 @@
+package domain
+
+import "time"
+
+type Actor struct {
+	Kind string `json:"kind" yaml:"kind"` // human, agent, cli, system
+	ID   string `json:"id" yaml:"id"`
+}
+
+type Event struct {
+	SchemaVersion string                 `json:"schema_version" yaml:"schema_version"`
+	ID            string                 `json:"id" yaml:"id"`
+	At            string                 `json:"at" yaml:"at"`
+	WorkItem      string                 `json:"work_item" yaml:"work_item"`
+	Type          string                 `json:"type" yaml:"type"`
+	Actor         Actor                  `json:"actor" yaml:"actor"`
+	Data          map[string]interface{} `json:"data" yaml:"data"`
+	CorrelationID string                 `json:"correlation_id,omitempty" yaml:"correlation_id,omitempty"`
+}
+
+func NewEvent(workItemID, eventType string, actor Actor, data map[string]interface{}) Event {
+	return Event{
+		SchemaVersion: "0.1",
+		ID:            "evt_" + time.Now().Format("20060102150405"),
+		At:            time.Now().UTC().Format(time.RFC3339),
+		WorkItem:      workItemID,
+		Type:          eventType,
+		Actor:         actor,
+		Data:          data,
+	}
+}
