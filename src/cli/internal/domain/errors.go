@@ -21,4 +21,7 @@ var (
 	ErrInvalidWorkItem          = errors.New("invalid work item")
 	ErrInvalidEntryPoint        = errors.New("invalid workflow entry point")
 	ErrInvalidExternalArtifact  = errors.New("invalid external artifact")
+	ErrConcurrentModification   = errors.New("concurrent work item modification")
+	ErrWorkItemLocked           = errors.New("work item is being modified")
+	ErrOperationAlreadyApplied  = errors.New("operation already applied")
 )

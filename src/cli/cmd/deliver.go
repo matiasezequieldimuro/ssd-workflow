@@ -15,6 +15,7 @@ var (
 	deliverRequestApproval bool
 	deliverActorKind       string
 	deliverActorID         string
+	deliverOperationID     string
 )
 
 var deliverCmd = &cobra.Command{
@@ -34,6 +35,7 @@ var deliverCmd = &cobra.Command{
 				Kind: domain.ActorKind(deliverActorKind),
 				ID:   deliverActorID,
 			},
+			OperationID: deliverOperationID,
 		})
 
 		outputResult(item, err, func() {
@@ -47,6 +49,7 @@ func init() {
 	deliverCmd.Flags().BoolVar(&deliverRequestApproval, "request-approval", false, "Request human approval for an optional gate")
 	deliverCmd.Flags().StringVar(&deliverActorKind, "actor-kind", "agent", "Actor kind (human, agent, cli, system)")
 	deliverCmd.Flags().StringVar(&deliverActorID, "actor-id", "agent", "Actor ID")
-	_ = deliverCmd.MarkFlagRequired("phase")
+	deliverCmd.Flags().StringVar(&deliverOperationID, "operation-id", "", "Stable idempotency key for safe retries")
+	mustMarkFlagRequired(deliverCmd, "phase")
 	RootCmd.AddCommand(deliverCmd)
 }

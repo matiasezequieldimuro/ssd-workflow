@@ -8,11 +8,12 @@ import (
 )
 
 type RecordEventInput struct {
-	WorkItemID string
-	EventType  string
-	Message    string
-	Actor      domain.Actor
-	Data       map[string]interface{}
+	WorkItemID  string
+	EventType   string
+	Message     string
+	Actor       domain.Actor
+	Data        map[string]interface{}
+	OperationID string
 }
 
 type RecordEventUseCase struct {
@@ -24,12 +25,19 @@ func NewRecordEventUseCase(repo ports.WorkItemRepository) *RecordEventUseCase {
 }
 
 func (uc *RecordEventUseCase) Execute(baseDir string, in RecordEventInput) error {
-	exists, err := uc.workItemRepo.WorkItemExists(baseDir, in.WorkItemID)
+	if err := domain.ValidateActor(in.Actor); err != nil {
+		return err
+	}
+	item, err := uc.workItemRepo.GetWorkItem(baseDir, in.WorkItemID)
 	if err != nil {
 		return err
 	}
-	if !exists {
-		return domain.ErrWorkItemNotFound
+	applied, err := operationApplied(baseDir, in.WorkItemID, in.OperationID, uc.workItemRepo)
+	if err != nil {
+		return err
+	}
+	if applied {
+		return nil
 	}
 
 	if in.Data == nil {
@@ -39,9 +47,9 @@ func (uc *RecordEventUseCase) Execute(baseDir string, in RecordEventInput) error
 		in.Data["message"] = in.Message
 	}
 
-	event := domain.NewEvent(in.WorkItemID, in.EventType, in.Actor, in.Data)
-	if err := uc.workItemRepo.AppendEvent(baseDir, in.WorkItemID, event); err != nil {
-		return fmt.Errorf("failed to append event: %w", err)
+	event := newOperationEvent(in.WorkItemID, in.EventType, in.Actor, in.Data, in.OperationID)
+	if _, err := commitWorkItem(baseDir, uc.workItemRepo, item, nil, []domain.Event{event}, in.OperationID); err != nil {
+		return fmt.Errorf("failed to commit event: %w", err)
 	}
 
 	return nil

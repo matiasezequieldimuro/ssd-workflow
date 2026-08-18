@@ -6,6 +6,7 @@ import (
 )
 
 var identifierPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var operationIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 
 func ValidateIdentifier(kind, value string) error {
 	if !identifierPattern.MatchString(value) {
@@ -22,6 +23,16 @@ func ValidateActor(actor Actor) error {
 	}
 	if actor.ID == "" {
 		return fmt.Errorf("%w: actor id cannot be empty", ErrInvalidActor)
+	}
+	return nil
+}
+
+func ValidateOperationID(value string) error {
+	if value == "" {
+		return nil
+	}
+	if !operationIDPattern.MatchString(value) {
+		return fmt.Errorf("%w: operation id must use 1-128 letters, numbers, dots, colons, underscores, or hyphens", ErrInvalidIdentifier)
 	}
 	return nil
 }

@@ -3,11 +3,12 @@
   "$id": "https://sdd-harness.local/schemas/work-item.schema.json",
   "title": "SDD Work Item",
   "type": "object",
-  "required": ["schema_version", "kind", "id", "title", "type", "status", "created_at", "created_by", "workflow", "input", "phases", "traceability"],
+  "required": ["schema_version", "kind", "id", "revision", "title", "type", "status", "created_at", "created_by", "workflow", "input", "phases", "traceability"],
   "properties": {
     "schema_version": { "const": "0.1" },
     "kind": { "const": "work-item" },
     "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "revision": { "type": "integer", "minimum": 1 },
     "title": { "type": "string", "minLength": 1 },
     "type": { "type": "string" },
     "status": { "enum": ["active", "completed", "archived", "cancelled"] },

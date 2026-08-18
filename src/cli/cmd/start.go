@@ -11,13 +11,14 @@ import (
 )
 
 var (
-	startWorkflow string
-	startTitle    string
-	startSummary  string
-	startFromArt  string
-	startPhase    string
-	actorKind     string
-	actorID       string
+	startWorkflow    string
+	startTitle       string
+	startSummary     string
+	startFromArt     string
+	startPhase       string
+	actorKind        string
+	actorID          string
+	startOperationID string
 )
 
 var startCmd = &cobra.Command{
@@ -44,6 +45,7 @@ var startCmd = &cobra.Command{
 			FromArtifact: startFromArt,
 			Phase:        startPhase,
 			Actor:        actor,
+			OperationID:  startOperationID,
 		})
 
 		outputResult(item, err, func() {
@@ -60,7 +62,8 @@ func init() {
 	startCmd.Flags().StringVar(&startPhase, "phase", "", "Entry phase when using --from-artifact")
 	startCmd.Flags().StringVar(&actorKind, "actor-kind", "human", "Actor kind (human, agent, cli)")
 	startCmd.Flags().StringVar(&actorID, "actor-id", "user", "Actor ID")
+	startCmd.Flags().StringVar(&startOperationID, "operation-id", "", "Stable idempotency key for safe retries")
 
-	_ = startCmd.MarkFlagRequired("title")
+	mustMarkFlagRequired(startCmd, "title")
 	RootCmd.AddCommand(startCmd)
 }

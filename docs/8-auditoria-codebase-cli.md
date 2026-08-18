@@ -1154,6 +1154,8 @@ El objetivo es evitar construir nuevas operaciones sobre invariantes incompletas
 
 **Hallazgo encaminado pero todavía no cerrado:** CLI-13, porque aquí se garantiza la escritura consistente de eventos, mientras que su unicidad y generación determinista se terminan en la Fase 4.
 
+**Estado al 2026-08-18:** completada. Las mutaciones persisten manifest, artifacts y eventos mediante un commit por snapshot con staging, sincronización, publicación controlada y rollback; `sdd init` también publica `.sdd/` desde staging. La v0.1 permite múltiples lectores pero serializa un escritor por work item mediante lock, incorpora `revision` para detectar lost updates y acepta `--operation-id` para reintentos idempotentes. Los errores contractuales ya no se descartan y existen pruebas de fallos entre pasos, recuperación, concurrencia e idempotencia.
+
 ### Fase 4 — Corregir fronteras arquitectónicas
 
 1. Extraer la creación de artifacts detrás de un port.

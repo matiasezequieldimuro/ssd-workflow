@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	completePhaseID   string
-	completeActorKind string
-	completeActorID   string
+	completePhaseID     string
+	completeActorKind   string
+	completeActorID     string
+	completeOperationID string
 )
 
 var completeCmd = &cobra.Command{
@@ -32,6 +33,7 @@ var completeCmd = &cobra.Command{
 				Kind: domain.ActorKind(completeActorKind),
 				ID:   completeActorID,
 			},
+			OperationID: completeOperationID,
 		})
 
 		outputResult(item, err, func() {
@@ -48,5 +50,6 @@ func init() {
 	completeCmd.Flags().StringVarP(&completePhaseID, "phase", "p", "", "Approved or accepted phase to complete; omit to complete the work item")
 	completeCmd.Flags().StringVar(&completeActorKind, "actor-kind", "cli", "Actor kind (human, agent, cli, system)")
 	completeCmd.Flags().StringVar(&completeActorID, "actor-id", "sdd", "Actor ID")
+	completeCmd.Flags().StringVar(&completeOperationID, "operation-id", "", "Stable idempotency key for safe retries")
 	RootCmd.AddCommand(completeCmd)
 }

@@ -32,7 +32,7 @@ graph TD
     UC["internal/usecases/\nOrquesta la lógica"]
     DOMAIN["internal/domain/\nModelos y reglas"]
     PORTS["internal/ports/\nInterfaces Repository"]
-    INFRA["internal/infra/\nEscritura YAML + JSONL en disco"]
+    INFRA["internal/infra/\nCommit transaccional en filesystem"]
 
     Terminal --> CMD
     CMD --> UC
@@ -65,10 +65,10 @@ sequenceDiagram
     UC->>UC: Dominio exige actor human
     UC->>UC: Transición prd → approved
     UC->>UC: Dominio desbloquea dependencias → ready
-    UC->>FS: SaveWorkItem(updatedItem)
-    FS->>Disk: Escribe manifest.yaml actualizado
-    UC->>FS: AppendEvent(approval.recorded)
-    FS->>Disk: Agrega línea a events.jsonl
+    UC->>FS: CommitWorkItem(manifest, artifacts, events)
+    FS->>FS: Lock + valida revision
+    FS->>Disk: Prepara snapshot temporal
+    FS->>Disk: Sync + publica snapshot
     UC-->>CMD: WorkItem actualizado
     CMD-->>User: JSON / Texto con resultado
 ```
@@ -78,8 +78,8 @@ sequenceDiagram
 | Capa | Archivos | Responsabilidad |
 | :--- | :--- | :--- |
 | **Domain** | `work_item.go`, `workflow.go`, `event.go`, `errors.go` | Entidades, tipos e invariantes de transición |
-| **Ports** | `repository.go` | Interfaces `WorkItemRepository` y `WorkflowRepository` |
-| **Infra** | `fs_repository.go` | Leer/escribir YAML (manifiestos) y JSONL (eventos) en disco |
+| **Ports** | `repository.go` | Repositorios y contrato de commit conjunto |
+| **Infra** | `fs_repository.go` | Locks, revisiones, staging, rollback y recuperación de snapshots |
 | **Use Cases** | `init_uc.go`, `start_uc.go`, `begin_phase_uc.go`, `deliver_phase_uc.go`, `approve_uc.go`, `complete_uc.go`, `next_uc.go`, `record_event_uc.go` | Orquestación de operaciones y persistencia |
 | **CMD** | `root.go`, `init.go`, `start.go`, `status.go`, `begin.go`, `deliver.go`, `approve.go`, `complete.go`, `next.go`, `record_event.go` | Parseo de argumentos con Cobra y presentación de resultados |
 | **Embeds** | `embeds.go`, `default_sdd/` | Templates de `.sdd/` embebidos en el binario para `sdd init` |
@@ -96,10 +96,12 @@ cd /Users/matiasdimuro/Documents/Webdev/sdd-harness/src/cli
 ```
 
 Incluye:
-- `TestParseValidFixtures` — parsea los 7 fixtures JSON del contrato (en `src/.sdd/tests/fixtures/valid/`)
+- `TestContractFixtures` — valida estructural y semánticamente los fixtures JSON del contrato
 - `TestFullWorkItemLifecycle` — ciclo obligatorio completo: init → start → deliver/approve → begin → implementación/verificación → code review → complete
 - `TestBypassModeStart` — inicio desde artefacto externo, incluyendo el gate requerido
 - `state_machine_test.go` — transiciones table-driven, gates humanos, rework y fases opcionales
+- `persistence_test.go` — rollback completo, locks, revisión optimista y recuperación tras interrupciones
+- `phase3_test.go` — reintentos idempotentes mediante `operation_id`
 
 ### B) Compilar el binario
 
@@ -152,6 +154,10 @@ Todos los comandos comparten flags globales:
 | `--json` | Salida en formato JSON estructurado (para agentes IA) | `false` |
 | `--dir` | Directorio raíz del proyecto destino | `.` (directorio actual) |
 
+Los comandos mutantes (`start`, `begin`, `deliver`, `approve`, `complete` y `record-event`) aceptan `--operation-id`. El agente debe reutilizar el mismo valor al reintentar una invocación incierta; una operación ya confirmada devuelve el estado existente sin duplicar eventos ni aumentar la revisión.
+
+La v0.1 admite múltiples lectores, pero sólo un escritor simultáneo por work item. Cada mutación confirma conjuntamente manifest, artifacts y eventos; una revisión obsoleta o un lock ocupado producen error sin sobrescribir estado.
+
 ---
 
 ### `sdd init`
@@ -189,6 +195,7 @@ sdd start feat-023 \
 | `--phase` | ❌* | — | Fase de entrada al usar `--from-artifact` |
 | `--actor-kind` | ❌ | `human` | Tipo de actor creador |
 | `--actor-id` | ❌ | `user` | ID del actor creador |
+| `--operation-id` | ❌ | — | Clave estable para reintentos idempotentes |
 
 > *Requerido si se usa `--from-artifact`
 
@@ -230,6 +237,7 @@ sdd approve feat-023 --phase specification --by matias --comment "Revisado y OK"
 | `--phase` / `-p` | ✅ | — | ID de la fase a aprobar |
 | `--by` / `-b` | ❌ | `human` | ID del aprobador humano |
 | `--comment` / `-c` | ❌ | — | Comentario opcional |
+| `--operation-id` | ❌ | — | Clave estable para reintentos idempotentes |
 
 > Sólo aprueba fases en estado `awaiting_approval`, con política `required` u `optional`. La invariante de actor humano vive en el dominio, no sólo en Cobra.
 
@@ -240,6 +248,7 @@ Comienza explícitamente una fase `ready`, `rejected` o `superseded`.
 
 ```bash
 sdd begin feat-023 --phase specification --actor-kind agent --actor-id copilot
+sdd begin feat-023 --phase specification --operation-id run:specification:begin:001
 ```
 
 `next` nunca realiza esta transición: sólo informa qué fase corresponde.
@@ -252,6 +261,7 @@ Entrega la evidencia de una fase `in_progress`.
 ```bash
 sdd deliver feat-023 --phase specification --actor-id copilot
 sdd deliver feat-023 --phase archive --request-approval
+sdd deliver feat-023 --phase specification --operation-id run:specification:deliver:001
 ```
 
 - `approval: required` produce `awaiting_approval`.
@@ -266,6 +276,7 @@ Completa una fase `approved`/`accepted`, o el work item si se omite `--phase`.
 ```bash
 sdd complete feat-023 --phase prd
 sdd complete feat-023
+sdd complete feat-023 --operation-id run:work-item:complete:001
 ```
 
 El work item sólo puede completarse cuando todas las fases obligatorias están satisfechas. Una fase opcional puede omitirse, pero si comenzó también debe terminar.
@@ -316,6 +327,7 @@ sdd record-event feat-023 \
 | `--message` / `-m` | ❌ | — | Descripción del evento |
 | `--actor-kind` | ❌ | `agent` | Tipo de actor (`human`, `agent`, `cli`, `system`) |
 | `--actor-id` | ❌ | `agent` | ID del actor |
+| `--operation-id` | ❌ | — | Clave estable para reintentos idempotentes |
 
 ---
 
@@ -323,7 +335,7 @@ sdd record-event feat-023 \
 
 ```mermaid
 graph LR
-    CLI["✅ CLI Fase 1\nImplementada"]
+    CLI["✅ CLI Fases 1-3\nImplementadas"]
     VALIDATE["🔴 sdd validate\nValidar manifest vs JSON Schema"]
     AGENT["🔴 Integración Agente\nOrquestador usa la CLI"]
     REJECT["🟡 sdd reject\nRechazar fase con motivo"]

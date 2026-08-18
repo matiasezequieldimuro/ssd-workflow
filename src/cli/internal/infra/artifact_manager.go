@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"sdd-cli/internal/domain"
+	"sdd-cli/internal/ports"
 )
 
 type ArtifactManager struct{}
@@ -18,30 +19,31 @@ func NewArtifactManager() *ArtifactManager {
 	return &ArtifactManager{}
 }
 
-func (am *ArtifactManager) CreateArtifactsForPhase(
+func (am *ArtifactManager) PrepareArtifactsForPhase(
 	baseDir string,
 	workflow *domain.Workflow,
 	phaseID string,
 	workItemID string,
 	templateVars map[string]string,
-) error {
+) ([]ports.ArtifactWrite, error) {
 	if err := domain.ValidateIdentifier("work item id", workItemID); err != nil {
-		return err
+		return nil, err
 	}
 	phase, exists := workflow.Phase(phaseID)
 	if !exists {
-		return fmt.Errorf("phase %s not found in workflow %s", phaseID, workflow.ID)
+		return nil, fmt.Errorf("phase %s not found in workflow %s", phaseID, workflow.ID)
 	}
 
+	writes := make([]ports.ArtifactWrite, 0, len(phase.Produces))
 	for _, artifactID := range phase.Produces {
 		artifactConfig, exists := workflow.Artifacts[artifactID]
 		if !exists {
-			return fmt.Errorf("artifact %s defined in phase but not in workflow artifacts", artifactID)
+			return nil, fmt.Errorf("artifact %s defined in phase but not in workflow artifacts", artifactID)
 		}
 
 		templateContent, err := am.readLocalTemplate(baseDir, artifactConfig.Template)
 		if err != nil {
-			return fmt.Errorf("failed to read template for artifact %s: %w", artifactID, err)
+			return nil, fmt.Errorf("failed to read template for artifact %s: %w", artifactID, err)
 		}
 
 		vars := copyTemplateVars(templateVars)
@@ -54,52 +56,39 @@ func (am *ArtifactManager) CreateArtifactsForPhase(
 
 		renderedContent := domain.RenderTemplate(templateContent, vars)
 		if strings.Contains(renderedContent, "{{") {
-			return fmt.Errorf("%w: template %s contains unresolved placeholders", domain.ErrSchemaValidation, artifactConfig.Template)
+			return nil, fmt.Errorf("%w: template %s contains unresolved placeholders", domain.ErrSchemaValidation, artifactConfig.Template)
 		}
 		metadata, err := extractFrontMatter(renderedContent)
 		if err != nil {
-			return fmt.Errorf("%w: artifact %s: %v", domain.ErrSchemaValidation, artifactID, err)
+			return nil, fmt.Errorf("%w: artifact %s: %v", domain.ErrSchemaValidation, artifactID, err)
 		}
 		if err := NewSchemaValidator().ValidateYAML(baseDir, "artifact.schema.json", metadata); err != nil {
-			return err
+			return nil, err
 		}
 		if err := validateArtifactMetadata(metadata, artifactID, phaseID, workItemID); err != nil {
-			return err
+			return nil, err
 		}
 
-		artifactPath, err := containedPath(
-			filepath.Join(baseDir, ".sdd"),
-			"work-items",
-			"active",
-			workItemID,
-			artifactConfig.Path,
-		)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(artifactPath), 0755); err != nil {
-			return fmt.Errorf("failed to create artifact directory: %w", err)
-		}
-
-		if err := os.WriteFile(artifactPath, []byte(renderedContent), 0644); err != nil {
-			return fmt.Errorf("failed to write artifact file %s: %w", artifactPath, err)
-		}
+		writes = append(writes, ports.ArtifactWrite{
+			Path:    artifactConfig.Path,
+			Content: []byte(renderedContent),
+			Mode:    0644,
+		})
 	}
 
-	return nil
+	return writes, nil
 }
 
 func (am *ArtifactManager) ImportExternalArtifact(
-	baseDir string,
 	workflow *domain.Workflow,
 	phaseID string,
-	workItemID string,
 	artifactID string,
 	sourcePath string,
-) error {
+	writes []ports.ArtifactWrite,
+) ([]ports.ArtifactWrite, error) {
 	phase, exists := workflow.Phase(phaseID)
 	if !exists {
-		return domain.ErrPhaseNotFound
+		return nil, domain.ErrPhaseNotFound
 	}
 	producesArtifact := false
 	for _, producedID := range phase.Produces {
@@ -109,38 +98,32 @@ func (am *ArtifactManager) ImportExternalArtifact(
 		}
 	}
 	if !producesArtifact {
-		return fmt.Errorf("%w: phase %s does not produce artifact %s", domain.ErrInvalidExternalArtifact, phaseID, artifactID)
+		return nil, fmt.Errorf("%w: phase %s does not produce artifact %s", domain.ErrInvalidExternalArtifact, phaseID, artifactID)
 	}
 
 	artifactConfig := workflow.Artifacts[artifactID]
-	targetPath, err := containedPath(
-		filepath.Join(baseDir, ".sdd"),
-		"work-items",
-		"active",
-		workItemID,
-		artifactConfig.Path,
-	)
-	if err != nil {
-		return err
+	writeIndex := -1
+	for i := range writes {
+		if writes[i].Path == artifactConfig.Path {
+			writeIndex = i
+			break
+		}
 	}
-	generatedContent, err := os.ReadFile(targetPath)
-	if err != nil {
-		return fmt.Errorf("failed to read generated artifact %s: %w", targetPath, err)
+	if writeIndex < 0 {
+		return nil, fmt.Errorf("generated artifact %s was not prepared", artifactID)
 	}
-	metadata, err := extractFrontMatter(string(generatedContent))
+	metadata, err := extractFrontMatter(string(writes[writeIndex].Content))
 	if err != nil {
-		return fmt.Errorf("%w: generated artifact %s: %v", domain.ErrSchemaValidation, artifactID, err)
+		return nil, fmt.Errorf("%w: generated artifact %s: %v", domain.ErrSchemaValidation, artifactID, err)
 	}
 
 	externalContent, err := os.ReadFile(sourcePath)
 	if err != nil {
-		return fmt.Errorf("%w: read %s: %v", domain.ErrInvalidExternalArtifact, sourcePath, err)
+		return nil, fmt.Errorf("%w: read %s: %v", domain.ErrInvalidExternalArtifact, sourcePath, err)
 	}
 	importedContent := "---\n" + string(metadata) + "\n---\n\n" + stripFrontMatter(string(externalContent))
-	if err := os.WriteFile(targetPath, []byte(importedContent), 0644); err != nil {
-		return fmt.Errorf("failed to import external artifact %s: %w", targetPath, err)
-	}
-	return nil
+	writes[writeIndex].Content = []byte(importedContent)
+	return writes, nil
 }
 
 func (am *ArtifactManager) readLocalTemplate(baseDir, templateName string) (string, error) {

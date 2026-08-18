@@ -3,7 +3,6 @@ package usecases
 import (
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -21,6 +20,7 @@ type StartWorkItemInput struct {
 	FromArtifact string
 	Phase        string
 	Actor        domain.Actor
+	OperationID  string
 }
 
 type StartWorkItemUseCase struct {
@@ -48,6 +48,9 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 	if err := domain.ValidateActor(in.Actor); err != nil {
 		return nil, err
 	}
+	if err := domain.ValidateOperationID(in.OperationID); err != nil {
+		return nil, err
+	}
 	if in.Title == "" {
 		return nil, fmt.Errorf("%w: title cannot be empty", domain.ErrInvalidWorkItem)
 	}
@@ -59,6 +62,15 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 		return nil, err
 	}
 	if exists {
+		if in.OperationID != "" {
+			applied, err := operationApplied(baseDir, in.ID, in.OperationID, uc.workItemRepo)
+			if err != nil {
+				return nil, err
+			}
+			if applied {
+				return uc.workItemRepo.GetWorkItem(baseDir, in.ID)
+			}
+		}
 		return nil, domain.ErrWorkItemAlreadyExists
 	}
 
@@ -166,10 +178,6 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 		}
 	}
 
-	if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
-		return nil, fmt.Errorf("failed to save work item: %w", err)
-	}
-
 	artifactMgr := infra.NewArtifactManager()
 	templateVars := map[string]string{
 		"title":      in.Title,
@@ -177,37 +185,43 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 		"created_at": item.CreatedAt,
 		"type":       item.Type,
 	}
-	if err := artifactMgr.CreateArtifactsForPhase(baseDir, wf, entryPhase, in.ID, templateVars); err != nil {
-		return nil, fmt.Errorf("failed to create artifacts for entry phase: %w", err)
+	artifacts, err := artifactMgr.PrepareArtifactsForPhase(baseDir, wf, entryPhase, in.ID, templateVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare artifacts for entry phase: %w", err)
 	}
 
 	if in.FromArtifact != "" {
-		if err := artifactMgr.ImportExternalArtifact(
-			baseDir,
+		artifacts, err = artifactMgr.ImportExternalArtifact(
 			wf,
 			entryPhase,
-			in.ID,
 			externalArtifactID,
 			externalPath,
-		); err != nil {
+			artifacts,
+		)
+		if err != nil {
 			return nil, fmt.Errorf("failed to import external artifact: %w", err)
 		}
+	}
 
-		bypassEvent := domain.NewEvent(in.ID, "phase.bypassed_by_external_input", in.Actor, map[string]interface{}{
+	events := []domain.Event{
+		newOperationEvent(in.ID, "work_item.created", in.Actor, map[string]interface{}{
+			"workflow": wf.ID,
+			"title":    in.Title,
+		}, in.OperationID),
+	}
+	if in.FromArtifact != "" {
+		events = append(events, newOperationEvent(in.ID, "phase.bypassed_by_external_input", in.Actor, map[string]interface{}{
 			"phase":             in.Phase,
 			"external_artifact": externalPath,
 			"sha256":            externalHash,
-		})
-		_ = uc.workItemRepo.AppendEvent(baseDir, in.ID, bypassEvent)
+		}, in.OperationID))
 	}
 
-	createEvent := domain.NewEvent(in.ID, "work_item.created", in.Actor, map[string]interface{}{
-		"workflow": wf.ID,
-		"title":    in.Title,
-	})
-	_ = uc.workItemRepo.AppendEvent(baseDir, in.ID, createEvent)
-
-	return item, nil
+	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, artifacts, events, in.OperationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit work item: %w", err)
+	}
+	return persisted, nil
 }
 
 func validateExternalArtifact(path string) (string, string, error) {
@@ -222,17 +236,12 @@ func validateExternalArtifact(path string) (string, string, error) {
 	if !info.Mode().IsRegular() {
 		return "", "", fmt.Errorf("%w: %s is not a regular file", domain.ErrInvalidExternalArtifact, absolutePath)
 	}
-	file, err := os.Open(absolutePath)
+	content, err := os.ReadFile(absolutePath)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: open %s: %v", domain.ErrInvalidExternalArtifact, absolutePath, err)
+		return "", "", fmt.Errorf("%w: read %s: %v", domain.ErrInvalidExternalArtifact, absolutePath, err)
 	}
-	defer file.Close()
-
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", "", fmt.Errorf("%w: hash %s: %v", domain.ErrInvalidExternalArtifact, absolutePath, err)
-	}
-	return absolutePath, fmt.Sprintf("%x", hash.Sum(nil)), nil
+	hash := sha256.Sum256(content)
+	return absolutePath, fmt.Sprintf("%x", hash), nil
 }
 
 func externalArtifactReference(artifactID, path, hash string) *domain.ExternalArtifactReference {

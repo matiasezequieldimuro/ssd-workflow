@@ -8,9 +8,10 @@ import (
 )
 
 type BeginPhaseInput struct {
-	WorkItemID string
-	PhaseID    string
-	Actor      domain.Actor
+	WorkItemID  string
+	PhaseID     string
+	Actor       domain.Actor
+	OperationID string
 }
 
 type BeginPhaseUseCase struct {
@@ -30,23 +31,28 @@ func (uc *BeginPhaseUseCase) Execute(baseDir string, input BeginPhaseInput) (*do
 	if err != nil {
 		return nil, err
 	}
+	applied, err := operationApplied(baseDir, input.WorkItemID, input.OperationID, uc.workItemRepo)
+	if err != nil {
+		return nil, err
+	}
+	if applied {
+		return item, nil
+	}
 
 	mutation, err := item.BeginPhase(workflow, input.PhaseID)
 	if err != nil {
 		return nil, err
 	}
-	if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
-		return nil, fmt.Errorf("failed to save work item: %w", err)
-	}
 
-	event := domain.NewEvent(input.WorkItemID, "phase.transitioned", input.Actor, map[string]interface{}{
+	event := newOperationEvent(input.WorkItemID, "phase.transitioned", input.Actor, map[string]interface{}{
 		"phase": input.PhaseID,
 		"from":  mutation.Transition.From,
 		"to":    mutation.Transition.To,
-	})
-	if err := uc.workItemRepo.AppendEvent(baseDir, input.WorkItemID, event); err != nil {
-		return nil, fmt.Errorf("failed to append phase transition event: %w", err)
-	}
+	}, input.OperationID)
 
-	return item, nil
+	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, nil, []domain.Event{event}, input.OperationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit phase transition: %w", err)
+	}
+	return persisted, nil
 }

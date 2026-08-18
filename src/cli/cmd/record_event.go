@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	eventType    string
-	eventMsg     string
-	eventActKind string
-	eventActID   string
+	eventType        string
+	eventMsg         string
+	eventActKind     string
+	eventActID       string
+	eventOperationID string
 )
 
 var recordEventCmd = &cobra.Command{
@@ -32,10 +33,11 @@ var recordEventCmd = &cobra.Command{
 		}
 
 		err := uc.Execute(targetDir, usecases.RecordEventInput{
-			WorkItemID: id,
-			EventType:  eventType,
-			Message:    eventMsg,
-			Actor:      actor,
+			WorkItemID:  id,
+			EventType:   eventType,
+			Message:     eventMsg,
+			Actor:       actor,
+			OperationID: eventOperationID,
 		})
 
 		outputResult("Event recorded successfully", err, func() {
@@ -49,7 +51,8 @@ func init() {
 	recordEventCmd.Flags().StringVarP(&eventMsg, "message", "m", "", "Event message description")
 	recordEventCmd.Flags().StringVar(&eventActKind, "actor-kind", "agent", "Actor kind (human, agent, cli, system)")
 	recordEventCmd.Flags().StringVar(&eventActID, "actor-id", "agent", "Actor ID")
+	recordEventCmd.Flags().StringVar(&eventOperationID, "operation-id", "", "Stable idempotency key for safe retries")
 
-	_ = recordEventCmd.MarkFlagRequired("type")
+	mustMarkFlagRequired(recordEventCmd, "type")
 	RootCmd.AddCommand(recordEventCmd)
 }

@@ -8,9 +8,10 @@ import (
 )
 
 type CompleteInput struct {
-	WorkItemID string
-	PhaseID    string
-	Actor      domain.Actor
+	WorkItemID  string
+	PhaseID     string
+	Actor       domain.Actor
+	OperationID string
 }
 
 type CompleteUseCase struct {
@@ -30,9 +31,17 @@ func (uc *CompleteUseCase) Execute(baseDir string, input CompleteInput) (*domain
 	if err != nil {
 		return nil, err
 	}
+	applied, err := operationApplied(baseDir, input.WorkItemID, input.OperationID, uc.workItemRepo)
+	if err != nil {
+		return nil, err
+	}
+	if applied {
+		return item, nil
+	}
 
 	eventData := map[string]interface{}{}
 	eventType := "work_item.completed"
+	var artifacts []ports.ArtifactWrite
 
 	if input.PhaseID == "" {
 		if err := item.Complete(workflow); err != nil {
@@ -43,7 +52,8 @@ func (uc *CompleteUseCase) Execute(baseDir string, input CompleteInput) (*domain
 		if err != nil {
 			return nil, err
 		}
-		if err := createArtifactsForTransitions(baseDir, item, workflow, mutation.Unblocked); err != nil {
+		artifacts, err = prepareArtifactsForTransitions(baseDir, item, workflow, mutation.Unblocked)
+		if err != nil {
 			return nil, err
 		}
 		eventType = "phase.transitioned"
@@ -54,12 +64,11 @@ func (uc *CompleteUseCase) Execute(baseDir string, input CompleteInput) (*domain
 		}
 	}
 
-	if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
-		return nil, fmt.Errorf("failed to save work item: %w", err)
-	}
-	if err := uc.workItemRepo.AppendEvent(baseDir, input.WorkItemID, domain.NewEvent(input.WorkItemID, eventType, input.Actor, eventData)); err != nil {
-		return nil, fmt.Errorf("failed to append completion event: %w", err)
+	event := newOperationEvent(input.WorkItemID, eventType, input.Actor, eventData, input.OperationID)
+	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, artifacts, []domain.Event{event}, input.OperationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit completion: %w", err)
 	}
 
-	return item, nil
+	return persisted, nil
 }

@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	approvePhase   string
-	approveBy      string
-	approveComment string
+	approvePhase       string
+	approveBy          string
+	approveComment     string
+	approveOperationID string
 )
 
 var approveCmd = &cobra.Command{
@@ -32,10 +33,11 @@ var approveCmd = &cobra.Command{
 		}
 
 		item, err := uc.Execute(targetDir, usecases.ApproveInput{
-			WorkItemID: id,
-			PhaseID:    approvePhase,
-			ApprovedBy: actor,
-			Comment:    approveComment,
+			WorkItemID:  id,
+			PhaseID:     approvePhase,
+			ApprovedBy:  actor,
+			Comment:     approveComment,
+			OperationID: approveOperationID,
 		})
 
 		outputResult(item, err, func() {
@@ -48,7 +50,8 @@ func init() {
 	approveCmd.Flags().StringVarP(&approvePhase, "phase", "p", "", "Phase ID to approve")
 	approveCmd.Flags().StringVarP(&approveBy, "by", "b", "human", "Human approver ID")
 	approveCmd.Flags().StringVarP(&approveComment, "comment", "c", "", "Optional approval comment")
+	approveCmd.Flags().StringVar(&approveOperationID, "operation-id", "", "Stable idempotency key for safe retries")
 
-	_ = approveCmd.MarkFlagRequired("phase")
+	mustMarkFlagRequired(approveCmd, "phase")
 	RootCmd.AddCommand(approveCmd)
 }

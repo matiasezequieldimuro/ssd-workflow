@@ -9,10 +9,11 @@ import (
 )
 
 type ApproveInput struct {
-	WorkItemID string
-	PhaseID    string
-	ApprovedBy domain.Actor
-	Comment    string
+	WorkItemID  string
+	PhaseID     string
+	ApprovedBy  domain.Actor
+	Comment     string
+	OperationID string
 }
 
 type ApproveUseCase struct {
@@ -37,6 +38,13 @@ func (uc *ApproveUseCase) Execute(baseDir string, in ApproveInput) (*domain.Work
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workflow: %w", err)
 	}
+	applied, err := operationApplied(baseDir, in.WorkItemID, in.OperationID, uc.workItemRepo)
+	if err != nil {
+		return nil, err
+	}
+	if applied {
+		return item, nil
+	}
 
 	mutation, err := item.ApprovePhase(
 		wf,
@@ -49,22 +57,20 @@ func (uc *ApproveUseCase) Execute(baseDir string, in ApproveInput) (*domain.Work
 		return nil, err
 	}
 
-	if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
-		return nil, fmt.Errorf("failed to save work item: %w", err)
-	}
-
-	if err := createArtifactsForTransitions(baseDir, item, wf, mutation.Unblocked); err != nil {
+	artifacts, err := prepareArtifactsForTransitions(baseDir, item, wf, mutation.Unblocked)
+	if err != nil {
 		return nil, err
 	}
 
-	event := domain.NewEvent(in.WorkItemID, "approval.recorded", in.ApprovedBy, map[string]interface{}{
+	event := newOperationEvent(in.WorkItemID, "approval.recorded", in.ApprovedBy, map[string]interface{}{
 		"phase":   in.PhaseID,
 		"status":  domain.ApprovalApproved,
 		"comment": in.Comment,
-	})
-	if err := uc.workItemRepo.AppendEvent(baseDir, in.WorkItemID, event); err != nil {
-		return nil, fmt.Errorf("failed to append approval event: %w", err)
-	}
+	}, in.OperationID)
 
-	return item, nil
+	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, artifacts, []domain.Event{event}, in.OperationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to commit approval: %w", err)
+	}
+	return persisted, nil
 }

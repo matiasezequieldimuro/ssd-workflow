@@ -90,6 +90,7 @@ type WorkItem struct {
 	SchemaVersion string                `json:"schema_version" yaml:"schema_version"`
 	Kind          string                `json:"kind" yaml:"kind"`
 	ID            string                `json:"id" yaml:"id"`
+	Revision      int                   `json:"revision" yaml:"revision"`
 	Title         string                `json:"title" yaml:"title"`
 	Type          string                `json:"type" yaml:"type"`
 	Status        WorkItemStatus        `json:"status" yaml:"status"`

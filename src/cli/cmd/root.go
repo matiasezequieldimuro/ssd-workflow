@@ -50,7 +50,11 @@ func outputResult(data interface{}, err error, textPrinter func()) {
 			resp.Data = data
 		}
 
-		out, _ := json.MarshalIndent(resp, "", "  ")
+		out, marshalErr := json.MarshalIndent(resp, "", "  ")
+		if marshalErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to encode JSON response: %v\n", marshalErr)
+			os.Exit(1)
+		}
 		fmt.Println(string(out))
 		if err != nil {
 			os.Exit(1)
@@ -65,5 +69,11 @@ func outputResult(data interface{}, err error, textPrinter func()) {
 
 	if textPrinter != nil {
 		textPrinter()
+	}
+}
+
+func mustMarkFlagRequired(command *cobra.Command, flag string) {
+	if err := command.MarkFlagRequired(flag); err != nil {
+		panic(fmt.Sprintf("failed to mark --%s as required: %v", flag, err))
 	}
 }

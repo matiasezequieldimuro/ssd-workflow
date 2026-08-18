@@ -252,6 +252,7 @@ Cada work item tiene un único `manifest.yaml`. Es la fuente de estado actual; l
 schema_version: "0.1"
 kind: work-item
 id: "feat-023-add-coupons"
+revision: 3
 title: "Aplicar cupones en checkout"
 type: feature
 status: active                       # active | completed | archived | cancelled
@@ -295,6 +296,8 @@ observability:
     cache_read_tokens: null
     cache_write_tokens: null
 ```
+
+`revision` comienza en `1` y aumenta en cada mutación confirmada, incluso cuando la operación sólo agrega un evento. El repositorio rechaza una escritura basada en una revisión anterior para evitar lost updates.
 
 Estados permitidos para una fase:
 
@@ -374,6 +377,8 @@ Tipos iniciales: `work_item.created`, `artifact.created`, `artifact.updated`, `p
 
 Campos opcionales de `actor` o `data`: adaptador, agente/rol, modelo, proveedor, duración, tokens de entrada/salida/cache, comandos ejecutados, hashes de artefactos, resultado de validación y referencias externas. Si el proveedor expone consumo, cada evento puede registrar el detalle y el bloque `observability.token_usage` del manifiesto conserva un agregado opcional. Los secretos, prompts completos con datos sensibles y credenciales no se guardan en el evento.
 
+`correlation_id` representa el identificador estable de la operación que produjo el evento. Los comandos mutantes aceptan un `operation_id` opcional: si un agente reintenta una operación ya confirmada con el mismo valor, el motor devuelve el estado persistido sin incrementar `revision` ni duplicar eventos.
+
 ## 10. Procedimientos, skills y registro de capacidades
 
 Un **procedimiento** no es una skill: es el manual portable y canónico de una operación (`.sdd/procedures/create-plan.md`). Define objetivo, precondiciones, entradas, pasos, outputs, controles y criterio de terminación. Cualquier persona o agente puede seguirlo aunque no haya adaptador instalado.
@@ -422,6 +427,16 @@ Estas reglas definen el comportamiento, aunque la CLI se implemente después:
 5. Acciones de efecto externo (commit, push, PR, tickets, despliegue) exigen una autorización registrada separada del gate de contenido; se delegan a la política/permisos del adaptador.
 6. La verificación registra resultados reales. No se marca `completed` si no hay reporte de evidencia, aun cuando alguna prueba esté explícitamente marcada como no aplicable.
 7. El archivo de un work item conserva todos sus artefactos y eventos; sólo entonces puede actualizarse el baseline de especificaciones y/o changelog.
+
+### Garantías de persistencia v0.1
+
+- Se permiten múltiples lectores, pero sólo un escritor simultáneo por work item. Un lock de filesystem serializa las mutaciones.
+- Cada commit compara la `revision` leída con la persistida. Una revisión obsoleta falla sin sobrescribir el cambio confirmado por otro escritor.
+- Manifest, artifacts y eventos de una operación se preparan en un snapshot temporal, se sincronizan y se publican como una única unidad controlada.
+- Durante el intercambio del snapshot, una consulta puede recibir temporalmente un error de work item bloqueado; nunca debe interpretar ese caso como inexistencia.
+- El snapshot anterior se conserva como backup recuperable. Si el proceso se interrumpe entre renames, la siguiente operación restaura o completa el estado antes de continuar.
+- Si una operación falla antes de confirmar el snapshot, no modifica el estado visible. Si falla durante la publicación, el repositorio restaura el snapshot anterior.
+- `sdd init` también prepara `.sdd/` fuera de la ruta final y la publica mediante rename, evitando una inicialización visible a medias.
 
 ## 13. Camino de implementación propuesto
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -231,15 +232,36 @@ func TestRecordEventAppliesEventSchema(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("start error = %v", err)
 	}
+	repository := infra.NewFSWorkItemRepository()
+	before, err := repository.GetWorkItem(tmpDir, "event-validation")
+	if err != nil {
+		t.Fatalf("GetWorkItem() before error = %v", err)
+	}
+	eventsPath := filepath.Join(tmpDir, ".sdd", "work-items", "active", "event-validation", "events.jsonl")
+	eventsBefore, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() events before error = %v", err)
+	}
 
-	recordUC := usecases.NewRecordEventUseCase(infra.NewFSWorkItemRepository())
-	err := recordUC.Execute(tmpDir, usecases.RecordEventInput{
+	recordUC := usecases.NewRecordEventUseCase(repository)
+	err = recordUC.Execute(tmpDir, usecases.RecordEventInput{
 		WorkItemID: "event-validation",
 		EventType:  "INVALID EVENT TYPE",
 		Actor:      actor,
 	})
 	if !errors.Is(err, domain.ErrSchemaValidation) {
 		t.Fatalf("RecordEvent() error = %v, want %v", err, domain.ErrSchemaValidation)
+	}
+	after, err := repository.GetWorkItem(tmpDir, "event-validation")
+	if err != nil {
+		t.Fatalf("GetWorkItem() after error = %v", err)
+	}
+	eventsAfter, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() events after error = %v", err)
+	}
+	if after.Revision != before.Revision || !reflect.DeepEqual(eventsAfter, eventsBefore) {
+		t.Fatal("failed event mutation changed the persisted snapshot")
 	}
 }
 

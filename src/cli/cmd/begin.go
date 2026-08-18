@@ -11,9 +11,10 @@ import (
 )
 
 var (
-	beginPhaseID   string
-	beginActorKind string
-	beginActorID   string
+	beginPhaseID     string
+	beginActorKind   string
+	beginActorID     string
+	beginOperationID string
 )
 
 var beginCmd = &cobra.Command{
@@ -32,6 +33,7 @@ var beginCmd = &cobra.Command{
 				Kind: domain.ActorKind(beginActorKind),
 				ID:   beginActorID,
 			},
+			OperationID: beginOperationID,
 		})
 
 		outputResult(item, err, func() {
@@ -44,6 +46,7 @@ func init() {
 	beginCmd.Flags().StringVarP(&beginPhaseID, "phase", "p", "", "Phase ID to begin")
 	beginCmd.Flags().StringVar(&beginActorKind, "actor-kind", "agent", "Actor kind (human, agent, cli, system)")
 	beginCmd.Flags().StringVar(&beginActorID, "actor-id", "agent", "Actor ID")
-	_ = beginCmd.MarkFlagRequired("phase")
+	beginCmd.Flags().StringVar(&beginOperationID, "operation-id", "", "Stable idempotency key for safe retries")
+	mustMarkFlagRequired(beginCmd, "phase")
 	RootCmd.AddCommand(beginCmd)
 }
