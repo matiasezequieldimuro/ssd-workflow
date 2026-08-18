@@ -1169,6 +1169,10 @@ El objetivo es evitar construir nuevas operaciones sobre invariantes incompletas
 
 **Hallazgos cerrados al completar la fase:** CLI-11, CLI-13 y CLI-14.
 
+**Estado al 2026-08-18:** completada. Los use cases sólo dependen de ports segregados para lectura, idempotencia, commit, artifacts, inicialización, reloj e IDs; pueden ejecutarse con dobles en memoria y ya no importan infraestructura. La creación inicial del agregado vive en dominio. La composición productiva se concentra en `cmd/composition.go`. Los eventos usan IDs aleatorios de 128 bits, reloj inyectable y registran de forma ordenada cada transición con `from`, `to` y `cause`. Todos los comandos usan `RunE`, propagan errores hasta el root y producen envelopes JSON con códigos estables incluso ante argumentos o flags inválidos; `os.Exit` queda limitado a `main`.
+
+**Documentación de implementación:** la sección 4 de `docs/7-cli-impl-documentacion.md` detalla la segregación de ports, las dependencias de cada consumidor, el traslado de la creación al dominio, la secuencia contractual de eventos, el composition root y el contrato uniforme de errores.
+
 ### Fase 5 — Construir una suite de tests contractual
 
 1. Tests table-driven de estados.

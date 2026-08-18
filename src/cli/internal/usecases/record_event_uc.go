@@ -17,11 +17,21 @@ type RecordEventInput struct {
 }
 
 type RecordEventUseCase struct {
-	workItemRepo ports.WorkItemRepository
+	workItemRepo ports.WorkItemMutationRepository
+	clock        ports.Clock
+	idGenerator  ports.IDGenerator
 }
 
-func NewRecordEventUseCase(repo ports.WorkItemRepository) *RecordEventUseCase {
-	return &RecordEventUseCase{workItemRepo: repo}
+func NewRecordEventUseCase(
+	repo ports.WorkItemMutationRepository,
+	clock ports.Clock,
+	idGenerator ports.IDGenerator,
+) *RecordEventUseCase {
+	return &RecordEventUseCase{
+		workItemRepo: repo,
+		clock:        clock,
+		idGenerator:  idGenerator,
+	}
 }
 
 func (uc *RecordEventUseCase) Execute(baseDir string, in RecordEventInput) error {
@@ -40,14 +50,26 @@ func (uc *RecordEventUseCase) Execute(baseDir string, in RecordEventInput) error
 		return nil
 	}
 
-	if in.Data == nil {
-		in.Data = make(map[string]interface{})
+	data := make(map[string]interface{}, len(in.Data)+1)
+	for key, value := range in.Data {
+		data[key] = value
 	}
 	if in.Message != "" {
-		in.Data["message"] = in.Message
+		data["message"] = in.Message
 	}
 
-	event := newOperationEvent(in.WorkItemID, in.EventType, in.Actor, in.Data, in.OperationID)
+	event, err := newOperationEvent(
+		in.WorkItemID,
+		in.EventType,
+		in.Actor,
+		data,
+		in.OperationID,
+		uc.clock,
+		uc.idGenerator,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to generate event: %w", err)
+	}
 	if _, err := commitWorkItem(baseDir, uc.workItemRepo, item, nil, []domain.Event{event}, in.OperationID); err != nil {
 		return fmt.Errorf("failed to commit event: %w", err)
 	}

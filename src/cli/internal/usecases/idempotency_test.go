@@ -20,6 +20,9 @@ func TestMutatingUseCasesAreIdempotentWithOperationID(t *testing.T) {
 		repository,
 		workflowRepository,
 		infra.NewFSConfigRepository(),
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
 	)
 	actor := domain.Actor{Kind: domain.ActorHuman, ID: "matias"}
 	input := usecases.StartWorkItemInput{
@@ -51,7 +54,13 @@ func TestMutatingUseCasesAreIdempotentWithOperationID(t *testing.T) {
 		t.Fatal("replayed start changed revision or events")
 	}
 
-	deliver := usecases.NewDeliverPhaseUseCase(repository, workflowRepository)
+	deliver := usecases.NewDeliverPhaseUseCase(
+		repository,
+		workflowRepository,
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	deliverInput := usecases.DeliverPhaseInput{
 		WorkItemID:  input.ID,
 		PhaseID:     "prd",

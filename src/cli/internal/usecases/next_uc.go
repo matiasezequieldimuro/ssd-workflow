@@ -18,11 +18,11 @@ type NextAction struct {
 }
 
 type NextUseCase struct {
-	workItemRepo ports.WorkItemRepository
+	workItemRepo ports.WorkItemReader
 	workflowRepo ports.WorkflowRepository
 }
 
-func NewNextUseCase(wiRepo ports.WorkItemRepository, wfRepo ports.WorkflowRepository) *NextUseCase {
+func NewNextUseCase(wiRepo ports.WorkItemReader, wfRepo ports.WorkflowRepository) *NextUseCase {
 	return &NextUseCase{
 		workItemRepo: wiRepo,
 		workflowRepo: wfRepo,

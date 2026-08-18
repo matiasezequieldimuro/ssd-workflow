@@ -17,14 +17,26 @@ type ApproveInput struct {
 }
 
 type ApproveUseCase struct {
-	workItemRepo ports.WorkItemRepository
+	workItemRepo ports.WorkItemMutationRepository
 	workflowRepo ports.WorkflowRepository
+	artifacts    ports.ArtifactPreparer
+	clock        ports.Clock
+	idGenerator  ports.IDGenerator
 }
 
-func NewApproveUseCase(wiRepo ports.WorkItemRepository, wfRepo ports.WorkflowRepository) *ApproveUseCase {
+func NewApproveUseCase(
+	wiRepo ports.WorkItemMutationRepository,
+	wfRepo ports.WorkflowRepository,
+	artifacts ports.ArtifactPreparer,
+	clock ports.Clock,
+	idGenerator ports.IDGenerator,
+) *ApproveUseCase {
 	return &ApproveUseCase{
 		workItemRepo: wiRepo,
 		workflowRepo: wfRepo,
+		artifacts:    artifacts,
+		clock:        clock,
+		idGenerator:  idGenerator,
 	}
 }
 
@@ -50,25 +62,48 @@ func (uc *ApproveUseCase) Execute(baseDir string, in ApproveInput) (*domain.Work
 		wf,
 		in.PhaseID,
 		in.ApprovedBy,
-		time.Now().UTC().Format(time.RFC3339),
+		uc.clock.Now().UTC().Format(time.RFC3339),
 		in.Comment,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	artifacts, err := prepareArtifactsForTransitions(baseDir, item, wf, mutation.Unblocked)
+	artifacts, err := prepareArtifactsForTransitions(
+		baseDir,
+		item,
+		wf,
+		mutation.Unblocked,
+		uc.artifacts,
+		uc.clock,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	event := newOperationEvent(in.WorkItemID, "approval.recorded", in.ApprovedBy, map[string]interface{}{
+	approvalEvent, err := newOperationEvent(in.WorkItemID, "approval.recorded", in.ApprovedBy, map[string]interface{}{
 		"phase":   in.PhaseID,
 		"status":  domain.ApprovalApproved,
 		"comment": in.Comment,
-	}, in.OperationID)
+	}, in.OperationID, uc.clock, uc.idGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate approval event: %w", err)
+	}
+	transitionEvents, err := phaseMutationEvents(
+		in.WorkItemID,
+		mutation,
+		in.ApprovedBy,
+		"approval_recorded",
+		in.OperationID,
+		uc.clock,
+		uc.idGenerator,
+	)
+	if err != nil {
+		return nil, err
+	}
+	events := append([]domain.Event{approvalEvent}, transitionEvents...)
 
-	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, artifacts, []domain.Event{event}, in.OperationID)
+	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, artifacts, events, in.OperationID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to commit approval: %w", err)
 	}

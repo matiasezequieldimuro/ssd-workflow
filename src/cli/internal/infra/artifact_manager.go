@@ -1,11 +1,11 @@
 package infra
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -49,7 +49,6 @@ func (am *ArtifactManager) PrepareArtifactsForPhase(
 		vars := copyTemplateVars(templateVars)
 		vars["artifact_id"] = artifactID
 		vars["phase"] = phaseID
-		vars["created_at"] = time.Now().UTC().Format(time.RFC3339)
 		vars["created_by_kind"] = string(domain.ActorCLI)
 		vars["created_by_id"] = "sdd"
 		vars["sources"] = artifactSources(workflow, phase)
@@ -79,11 +78,35 @@ func (am *ArtifactManager) PrepareArtifactsForPhase(
 	return writes, nil
 }
 
+func (am *ArtifactManager) ResolveExternalArtifact(path string) (ports.ExternalArtifact, error) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return ports.ExternalArtifact{}, fmt.Errorf("%w: resolve path: %v", domain.ErrInvalidExternalArtifact, err)
+	}
+	info, err := os.Stat(absolutePath)
+	if err != nil {
+		return ports.ExternalArtifact{}, fmt.Errorf("%w: inspect %s: %v", domain.ErrInvalidExternalArtifact, absolutePath, err)
+	}
+	if !info.Mode().IsRegular() {
+		return ports.ExternalArtifact{}, fmt.Errorf("%w: %s is not a regular file", domain.ErrInvalidExternalArtifact, absolutePath)
+	}
+	content, err := os.ReadFile(absolutePath)
+	if err != nil {
+		return ports.ExternalArtifact{}, fmt.Errorf("%w: read %s: %v", domain.ErrInvalidExternalArtifact, absolutePath, err)
+	}
+	hash := sha256.Sum256(content)
+	return ports.ExternalArtifact{
+		Path:    absolutePath,
+		SHA256:  fmt.Sprintf("%x", hash),
+		Content: content,
+	}, nil
+}
+
 func (am *ArtifactManager) ImportExternalArtifact(
 	workflow *domain.Workflow,
 	phaseID string,
 	artifactID string,
-	sourcePath string,
+	source ports.ExternalArtifact,
 	writes []ports.ArtifactWrite,
 ) ([]ports.ArtifactWrite, error) {
 	phase, exists := workflow.Phase(phaseID)
@@ -117,11 +140,7 @@ func (am *ArtifactManager) ImportExternalArtifact(
 		return nil, fmt.Errorf("%w: generated artifact %s: %v", domain.ErrSchemaValidation, artifactID, err)
 	}
 
-	externalContent, err := os.ReadFile(sourcePath)
-	if err != nil {
-		return nil, fmt.Errorf("%w: read %s: %v", domain.ErrInvalidExternalArtifact, sourcePath, err)
-	}
-	importedContent := "---\n" + string(metadata) + "\n---\n\n" + stripFrontMatter(string(externalContent))
+	importedContent := "---\n" + string(metadata) + "\n---\n\n" + stripFrontMatter(string(source.Content))
 	writes[writeIndex].Content = []byte(importedContent)
 	return writes, nil
 }

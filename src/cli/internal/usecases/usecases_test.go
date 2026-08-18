@@ -16,7 +16,7 @@ func setupTestEnv(t *testing.T) string {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 
-	initUC := usecases.NewInitUseCase()
+	initUC := usecases.NewInitUseCase(infra.NewFSProjectInitializer())
 	if err := initUC.Execute(tmpDir); err != nil {
 		t.Fatalf("InitUseCase failed: %v", err)
 	}
@@ -35,7 +35,14 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	actor := domain.Actor{Kind: "human", ID: "matias"}
 
 	// 1. Start Work Item
-	startUC := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo, configRepo)
+	startUC := usecases.NewStartWorkItemUseCase(
+		wiRepo,
+		wfRepo,
+		configRepo,
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	item, err := startUC.Execute(tmpDir, usecases.StartWorkItemInput{
 		ID:         "feat-test-lifecycle",
 		WorkflowID: "feature-standard",
@@ -58,7 +65,7 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	}
 
 	// 2. Status Check
-	statusUC := usecases.NewStatusUseCase(wiRepo)
+	statusUC := usecases.NewStatusUseCase(wiRepo, wfRepo)
 	statusItem, err := statusUC.Execute(tmpDir, "feat-test-lifecycle")
 	if err != nil {
 		t.Fatalf("StatusUseCase failed: %v", err)
@@ -68,7 +75,13 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	}
 
 	// 3. Deliver PRD phase for approval
-	deliverUC := usecases.NewDeliverPhaseUseCase(wiRepo, wfRepo)
+	deliverUC := usecases.NewDeliverPhaseUseCase(
+		wiRepo,
+		wfRepo,
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	deliveredItem, err := deliverUC.Execute(tmpDir, usecases.DeliverPhaseInput{
 		WorkItemID: "feat-test-lifecycle",
 		PhaseID:    "prd",
@@ -82,7 +95,13 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	}
 
 	// 4. Approve PRD phase
-	approveUC := usecases.NewApproveUseCase(wiRepo, wfRepo)
+	approveUC := usecases.NewApproveUseCase(
+		wiRepo,
+		wfRepo,
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	approvedItem, err := approveUC.Execute(tmpDir, usecases.ApproveInput{
 		WorkItemID: "feat-test-lifecycle",
 		PhaseID:    "prd",
@@ -120,7 +139,12 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	}
 
 	// 6. Begin specification explicitly
-	beginUC := usecases.NewBeginPhaseUseCase(wiRepo, wfRepo)
+	beginUC := usecases.NewBeginPhaseUseCase(
+		wiRepo,
+		wfRepo,
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	begunItem, err := beginUC.Execute(tmpDir, usecases.BeginPhaseInput{
 		WorkItemID: "feat-test-lifecycle",
 		PhaseID:    "specification",
@@ -216,7 +240,13 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 		t.Fatalf("Expected optional archive ready, got %s", approvedItem.Phases["archive"].Status)
 	}
 
-	completeUC := usecases.NewCompleteUseCase(wiRepo, wfRepo)
+	completeUC := usecases.NewCompleteUseCase(
+		wiRepo,
+		wfRepo,
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	completedItem, err := completeUC.Execute(tmpDir, usecases.CompleteInput{
 		WorkItemID: "feat-test-lifecycle",
 		Actor:      actor,
@@ -229,7 +259,11 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	}
 
 	// 8. Record Event
-	recordEventUC := usecases.NewRecordEventUseCase(wiRepo)
+	recordEventUC := usecases.NewRecordEventUseCase(
+		wiRepo,
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	err = recordEventUC.Execute(tmpDir, usecases.RecordEventInput{
 		WorkItemID: "feat-test-lifecycle",
 		EventType:  "test.completed",
@@ -257,7 +291,14 @@ func TestBypassModeStart(t *testing.T) {
 
 	actor := domain.Actor{Kind: "human", ID: "matias"}
 
-	startUC := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo, configRepo)
+	startUC := usecases.NewStartWorkItemUseCase(
+		wiRepo,
+		wfRepo,
+		configRepo,
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	item, err := startUC.Execute(tmpDir, usecases.StartWorkItemInput{
 		ID:           "feat-bypass",
 		WorkflowID:   "feature-standard",
@@ -284,7 +325,13 @@ func TestBypassModeStart(t *testing.T) {
 		t.Errorf("Expected copied artifact at %s, but file not found: %v", copiedArtPath, err)
 	}
 
-	approveUC := usecases.NewApproveUseCase(wiRepo, wfRepo)
+	approveUC := usecases.NewApproveUseCase(
+		wiRepo,
+		wfRepo,
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	approvedItem, err := approveUC.Execute(tmpDir, usecases.ApproveInput{
 		WorkItemID: "feat-bypass",
 		PhaseID:    "prd",

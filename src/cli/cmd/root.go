@@ -2,33 +2,20 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"sdd-cli/internal/domain"
 )
 
-var (
-	jsonOutput bool
-	targetDir  string
-)
-
-var RootCmd = &cobra.Command{
-	Use:   "sdd",
-	Short: "SDD Engine CLI - Spec-Driven Development Framework Engine",
-	Long:  "CLI tool for managing Spec-Driven Development workflows, work items, phase state transitions, and event tracking.",
-}
-
-func Execute() {
-	if err := RootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func init() {
-	RootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output results in JSON format")
-	RootCmd.PersistentFlags().StringVar(&targetDir, "dir", ".", "Target project directory path")
+type rootOptions struct {
+	json      bool
+	targetDir string
 }
 
 type JSONResponse struct {
@@ -38,37 +25,134 @@ type JSONResponse struct {
 }
 
 type JSONError struct {
+	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
-func outputResult(data interface{}, err error, textPrinter func()) {
+func NewRootCommand(application Application) *cobra.Command {
+	options := &rootOptions{}
+	root := &cobra.Command{
+		Use:           "sdd",
+		Short:         "SDD Engine CLI - Spec-Driven Development Framework Engine",
+		Long:          "CLI tool for managing Spec-Driven Development workflows, work items, phase state transitions, and event tracking.",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
+	root.PersistentFlags().BoolVar(&options.json, "json", false, "Output results in JSON format")
+	root.PersistentFlags().StringVar(&options.targetDir, "dir", ".", "Target project directory path")
+	root.AddCommand(
+		newInitCommand(application.Init, options),
+		newStartCommand(application.Start, options),
+		newStatusCommand(application.Status, options),
+		newNextCommand(application.Next, options),
+		newBeginCommand(application.Begin, options),
+		newDeliverCommand(application.Deliver, options),
+		newApproveCommand(application.Approve, options),
+		newCompleteCommand(application.Complete, options),
+		newRecordEventCommand(application.RecordEvent, options),
+	)
+	return root
+}
+
+func Execute() error {
+	root := NewRootCommand(NewProductionApplication())
+	root.SetOut(os.Stdout)
+	root.SetErr(os.Stderr)
+	return executeRoot(root)
+}
+
+func executeRoot(root *cobra.Command) error {
+	err := root.Execute()
+	if err == nil {
+		return nil
+	}
+
+	jsonOutput, flagErr := root.PersistentFlags().GetBool("json")
+	if flagErr != nil {
+		return errors.Join(err, flagErr)
+	}
+	if outputErr := outputError(root, jsonOutput, err); outputErr != nil {
+		return errors.Join(err, outputErr)
+	}
+	return err
+}
+
+func outputSuccess(
+	command *cobra.Command,
+	jsonOutput bool,
+	data interface{},
+	textPrinter func(io.Writer) error,
+) error {
 	if jsonOutput {
-		resp := JSONResponse{Success: err == nil}
-		if err != nil {
-			resp.Error = &JSONError{Message: err.Error()}
-		} else {
-			resp.Data = data
-		}
-
-		out, marshalErr := json.MarshalIndent(resp, "", "  ")
-		if marshalErr != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to encode JSON response: %v\n", marshalErr)
-			os.Exit(1)
-		}
-		fmt.Println(string(out))
-		if err != nil {
-			os.Exit(1)
-		}
-		return
+		return writeJSON(command.OutOrStdout(), JSONResponse{
+			Success: true,
+			Data:    data,
+		})
 	}
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	if textPrinter == nil {
+		return nil
 	}
+	return textPrinter(command.OutOrStdout())
+}
 
-	if textPrinter != nil {
-		textPrinter()
+func outputError(command *cobra.Command, jsonOutput bool, err error) error {
+	if jsonOutput {
+		return writeJSON(command.OutOrStdout(), JSONResponse{
+			Success: false,
+			Error: &JSONError{
+				Code:    errorCode(err),
+				Message: err.Error(),
+			},
+		})
+	}
+	_, writeErr := fmt.Fprintf(command.ErrOrStderr(), "Error: %v\n", err)
+	return writeErr
+}
+
+func writeJSON(writer io.Writer, response JSONResponse) error {
+	encoder := json.NewEncoder(writer)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(response); err != nil {
+		return fmt.Errorf("encode JSON response: %w", err)
+	}
+	return nil
+}
+
+func errorCode(err error) string {
+	switch {
+	case errors.Is(err, domain.ErrWorkItemNotFound),
+		errors.Is(err, domain.ErrWorkflowNotFound),
+		errors.Is(err, domain.ErrPhaseNotFound):
+		return "not_found"
+	case errors.Is(err, domain.ErrWorkItemAlreadyExists):
+		return "already_exists"
+	case errors.Is(err, domain.ErrConcurrentModification):
+		return "concurrent_modification"
+	case errors.Is(err, domain.ErrWorkItemLocked):
+		return "work_item_locked"
+	case errors.Is(err, domain.ErrInvalidTransition),
+		errors.Is(err, domain.ErrPhaseNotAwaitingApproval),
+		errors.Is(err, domain.ErrPhaseBlocked),
+		errors.Is(err, domain.ErrHumanActorRequired),
+		errors.Is(err, domain.ErrApprovalNotAllowed),
+		errors.Is(err, domain.ErrWorkItemCannotComplete):
+		return "invalid_transition"
+	case errors.Is(err, domain.ErrInvalidIdentifier),
+		errors.Is(err, domain.ErrInvalidActor),
+		errors.Is(err, domain.ErrInvalidPath),
+		errors.Is(err, domain.ErrSchemaValidation),
+		errors.Is(err, domain.ErrInvalidWorkflow),
+		errors.Is(err, domain.ErrInvalidWorkItem),
+		errors.Is(err, domain.ErrInvalidEntryPoint),
+		errors.Is(err, domain.ErrInvalidExternalArtifact):
+		return "invalid_input"
+	case strings.Contains(err.Error(), "arg(s)") ||
+		strings.Contains(err.Error(), "required flag(s)") ||
+		strings.Contains(err.Error(), "unknown command") ||
+		strings.Contains(err.Error(), "unknown flag"):
+		return "invalid_arguments"
+	default:
+		return "internal_error"
 	}
 }
 

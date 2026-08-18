@@ -120,6 +120,100 @@ type NextPhase struct {
 	State      PhaseState
 }
 
+type NewWorkItemParams struct {
+	ID               string
+	Title            string
+	Summary          string
+	EntryPhase       string
+	CreatedAt        string
+	CreatedBy        Actor
+	ExternalArtifact *ExternalArtifactReference
+}
+
+func NewWorkItem(workflow *Workflow, params NewWorkItemParams) (*WorkItem, PhaseMutation, error) {
+	if workflow == nil {
+		return nil, PhaseMutation{}, fmt.Errorf("%w: workflow is required", ErrInvalidWorkItem)
+	}
+	if err := ValidateIdentifier("work item id", params.ID); err != nil {
+		return nil, PhaseMutation{}, err
+	}
+	if params.Title == "" {
+		return nil, PhaseMutation{}, fmt.Errorf("%w: title cannot be empty", ErrInvalidWorkItem)
+	}
+	if err := ValidateActor(params.CreatedBy); err != nil {
+		return nil, PhaseMutation{}, err
+	}
+	if _, exists := workflow.Phase(params.EntryPhase); !exists {
+		return nil, PhaseMutation{}, ErrPhaseNotFound
+	}
+
+	phases := make(map[string]PhaseState, len(workflow.Phases))
+	for _, phase := range workflow.Phases {
+		phases[phase.ID] = PhaseState{
+			Status:   PhaseBlocked,
+			Artifact: workflow.ArtifactPathForPhase(phase.ID),
+		}
+	}
+
+	inputSource := "user_prompt"
+	if params.ExternalArtifact == nil {
+		entryState := phases[params.EntryPhase]
+		entryState.Status = PhaseReady
+		phases[params.EntryPhase] = entryState
+	} else {
+		inputSource = "external_artifact"
+		ancestors, err := workflow.Ancestors(params.EntryPhase)
+		if err != nil {
+			return nil, PhaseMutation{}, err
+		}
+		for phaseID := range ancestors {
+			state := phases[phaseID]
+			state.Status = PhaseNotApplicable
+			phases[phaseID] = state
+		}
+	}
+
+	item := &WorkItem{
+		SchemaVersion: "0.1",
+		Kind:          "work-item",
+		ID:            params.ID,
+		Title:         params.Title,
+		Type:          workflow.WorkItemType,
+		Status:        WorkItemActive,
+		CreatedAt:     params.CreatedAt,
+		CreatedBy:     &params.CreatedBy,
+		Workflow: WorkItemWorkflow{
+			ID:         workflow.ID,
+			Version:    workflow.SchemaVersion,
+			EntryPhase: params.EntryPhase,
+		},
+		Input: WorkItemInput{
+			Source:           inputSource,
+			Summary:          params.Summary,
+			ExternalArtifact: params.ExternalArtifact,
+		},
+		Phases: phases,
+		Traceability: Traceability{
+			Events: "events.jsonl",
+		},
+	}
+
+	var (
+		mutation PhaseMutation
+		err      error
+	)
+	if params.ExternalArtifact == nil {
+		mutation, err = item.BeginPhase(workflow, params.EntryPhase)
+	} else {
+		mutation, err = item.AcceptExternalPhase(workflow, params.EntryPhase)
+	}
+	if err != nil {
+		return nil, PhaseMutation{}, err
+	}
+
+	return item, mutation, nil
+}
+
 func (item *WorkItem) BeginPhase(workflow *Workflow, phaseID string) (PhaseMutation, error) {
 	phase, state, err := item.phase(workflow, phaseID)
 	if err != nil {

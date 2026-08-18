@@ -2,38 +2,46 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/spf13/cobra"
 
-	"sdd-cli/internal/infra"
 	"sdd-cli/internal/usecases"
 )
 
-var statusCmd = &cobra.Command{
-	Use:   "status <work-item-id>",
-	Short: "Get work item status and phase details",
-	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		id := args[0]
-		repo := infra.NewFSWorkItemRepository()
-		uc := usecases.NewStatusUseCase(repo)
-
-		item, err := uc.Execute(targetDir, id)
-
-		outputResult(item, err, func() {
-			fmt.Printf("Work Item: %s [%s]\n", item.ID, item.Status)
-			fmt.Printf("Title: %s\n", item.Title)
-			fmt.Printf("Workflow: %s\n", item.Workflow.ID)
-			fmt.Println("-------------------------------------------------------------")
-			fmt.Printf("%-20s %-20s %-20s\n", "PHASE", "STATUS", "ARTIFACT")
-			fmt.Println("-------------------------------------------------------------")
-			for ph, st := range item.Phases {
-				fmt.Printf("%-20s %-20s %-20s\n", ph, st.Status, st.Artifact)
+func newStatusCommand(useCase *usecases.StatusUseCase, options *rootOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status <work-item-id>",
+		Short: "Get work item status and phase details",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			result, err := useCase.Execute(options.targetDir, args[0])
+			if err != nil {
+				return err
 			}
-		})
-	},
-}
-
-func init() {
-	RootCmd.AddCommand(statusCmd)
+			return outputSuccess(command, options.json, result, func(writer io.Writer) error {
+				if _, err := fmt.Fprintf(writer, "Work Item: %s [%s]\n", result.ID, result.Status); err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintf(writer, "Title: %s\nWorkflow: %s\n", result.Title, result.Workflow.ID); err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintln(writer, "-------------------------------------------------------------"); err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintf(writer, "%-20s %-20s %-20s\n", "PHASE", "STATUS", "ARTIFACT"); err != nil {
+					return err
+				}
+				if _, err := fmt.Fprintln(writer, "-------------------------------------------------------------"); err != nil {
+					return err
+				}
+				for _, phase := range result.OrderedPhases {
+					if _, err := fmt.Fprintf(writer, "%-20s %-20s %-20s\n", phase.ID, phase.Status, phase.Artifact); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+		},
+	}
 }

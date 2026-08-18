@@ -18,7 +18,7 @@ src/
     ├── embeds/              ← Archivos .sdd por defecto embebidos en el binario
     └── internal/
         ├── domain/          ← Modelos y errores del negocio
-        ├── ports/           ← Interfaces/contratos de repositorios
+        ├── ports/           ← Capacidades externas requeridas por aplicación
         ├── infra/           ← Implementación en disco (YAML/JSONL)
         └── usecases/        ← Lógica de negocio orquestada
 ```
@@ -31,7 +31,7 @@ graph TD
     CMD["cmd/ — Cobra CLI\nParsea flags y args"]
     UC["internal/usecases/\nOrquesta la lógica"]
     DOMAIN["internal/domain/\nModelos y reglas"]
-    PORTS["internal/ports/\nInterfaces Repository"]
+    PORTS["internal/ports/\nRepositorios, artifacts, reloj e IDs"]
     INFRA["internal/infra/\nCommit transaccional en filesystem"]
 
     Terminal --> CMD
@@ -78,10 +78,10 @@ sequenceDiagram
 | Capa | Archivos | Responsabilidad |
 | :--- | :--- | :--- |
 | **Domain** | `work_item.go`, `workflow.go`, `event.go`, `errors.go` | Entidades, tipos e invariantes de transición |
-| **Ports** | `repository.go` | Repositorios y contrato de commit conjunto |
-| **Infra** | `fs_repository.go` | Locks, revisiones, staging, rollback y recuperación de snapshots |
+| **Ports** | `repository.go` | Lectura, existencia, idempotencia, commit conjunto, artifacts, inicialización, reloj e IDs |
+| **Infra** | `fs_repository.go`, `artifact_manager.go`, `project_initializer.go`, `runtime.go` | Filesystem transaccional, templates locales, inicialización, reloj de sistema e IDs aleatorios |
 | **Use Cases** | `init_uc.go`, `start_uc.go`, `begin_phase_uc.go`, `deliver_phase_uc.go`, `approve_uc.go`, `complete_uc.go`, `next_uc.go`, `record_event_uc.go` | Orquestación de operaciones y persistencia |
-| **CMD** | `root.go`, `init.go`, `start.go`, `status.go`, `begin.go`, `deliver.go`, `approve.go`, `complete.go`, `next.go`, `record_event.go` | Parseo de argumentos con Cobra y presentación de resultados |
+| **CMD** | `composition.go`, `root.go` y comandos | Composición centralizada, parseo con Cobra `RunE` y contrato uniforme de salida |
 | **Embeds** | `embeds.go`, `default_sdd/` | Templates de `.sdd/` embebidos en el binario para `sdd init` |
 
 ---
@@ -101,7 +101,10 @@ Incluye:
 - `TestBypassModeStart` — inicio desde artefacto externo, incluyendo el gate requerido
 - `state_machine_test.go` — transiciones table-driven, gates humanos, rework y fases opcionales
 - `persistence_test.go` — rollback completo, locks, revisión optimista y recuperación tras interrupciones
-- `phase3_test.go` — reintentos idempotentes mediante `operation_id`
+- `contract_integration_test.go` — defaults, templates locales, artefactos externos, seguridad de paths y validación contractual
+- `idempotency_test.go` — reintentos idempotentes mediante `operation_id`
+- `dependency_injection_test.go` — use cases ejecutados con repositorios, artifacts, reloj, IDs e inicializador en memoria
+- `cmd/root_test.go` — errores de argumentos y flags requeridos dentro del envelope JSON
 
 ### B) Compilar el binario
 
@@ -157,6 +160,20 @@ Todos los comandos comparten flags globales:
 Los comandos mutantes (`start`, `begin`, `deliver`, `approve`, `complete` y `record-event`) aceptan `--operation-id`. El agente debe reutilizar el mismo valor al reintentar una invocación incierta; una operación ya confirmada devuelve el estado existente sin duplicar eventos ni aumentar la revisión.
 
 La v0.1 admite múltiples lectores, pero sólo un escritor simultáneo por work item. Cada mutación confirma conjuntamente manifest, artifacts y eventos; una revisión obsoleta o un lock ocupado producen error sin sobrescribir estado.
+
+Todos los comandos usan Cobra `RunE`: los errores se propagan hasta el root command y `os.Exit` se ejecuta únicamente en `main`. Con `--json`, tanto los errores de negocio como los de argumentos o flags respetan el mismo envelope:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "invalid_arguments",
+    "message": "accepts 1 arg(s), received 0"
+  }
+}
+```
+
+Los códigos iniciales son `invalid_arguments`, `invalid_input`, `not_found`, `already_exists`, `invalid_transition`, `concurrent_modification`, `work_item_locked` e `internal_error`.
 
 ---
 
@@ -331,11 +348,107 @@ sdd record-event feat-023 \
 
 ---
 
-## 4. Próximos pasos
+## 4. Fronteras arquitectónicas y runtime determinista
+
+La Fase 4 corrige la dependencia parcial hacia infraestructura que todavía existía después de estabilizar la persistencia. El objetivo no fue crear una interfaz por archivo, sino separar únicamente capacidades externas o variables y conservar `CommitWorkItem` como frontera transaccional.
+
+### 4.1. Ports según el consumidor
+
+El contrato de aplicación se divide por capacidad:
+
+| Port | Responsabilidad | Consumidores |
+| :--- | :--- | :--- |
+| `WorkItemReader` | Cargar el agregado | `status`, `next` y operaciones mutantes |
+| `WorkItemExistenceChecker` | Detectar colisiones al crear | `start` |
+| `OperationTracker` | Comprobar `operation_id` aplicado | Operaciones mutantes |
+| `WorkItemCommitter` | Confirmar manifest, artifacts y eventos juntos | Operaciones mutantes |
+| `ArtifactPreparer` | Renderizar y validar artifacts sin persistirlos | `start`, `deliver`, `approve`, `complete` |
+| `ExternalArtifactImporter` | Resolver, hashear e importar evidencia externa | `start` |
+| `ProjectInitializer` | Publicar `.sdd/` de forma atómica | `init` |
+| `Clock` | Proveer timestamps controlables | Creación, approvals, artifacts y eventos |
+| `IDGenerator` | Generar IDs únicos de eventos | Todas las mutaciones |
+
+`WorkItemMutationRepository` y `WorkItemCreationRepository` componen las capacidades mínimas requeridas por cada tipo de operación. Esta segregación no separa artificialmente manifest, artifacts y eventos en stores independientes: los tres siguen confirmándose mediante un único `WorkItemCommit`.
+
+### 4.2. Dependencias de use cases
+
+Los packages de `internal/usecases` no importan `internal/infra`. La infraestructura productiva implementa los ports, mientras los tests pueden reemplazarla por dobles en memoria:
+
+```text
+usecases ──> domain
+usecases ──> ports
+infra    ──> domain + ports
+cmd      ──> usecases
+```
+
+`InitUseCase` ya no conoce `os`, `io/fs` ni los embeds. Delega en `ProjectInitializer`. La preparación de artifacts tampoco se instancia dentro de los casos de uso: se recibe mediante `ArtifactPreparer` o `ArtifactService`.
+
+### 4.3. Creación del agregado
+
+La construcción inicial de estados salió de `StartWorkItemUseCase` y se concentra en:
+
+```go
+domain.NewWorkItem(workflow, params)
+```
+
+El dominio decide:
+
+- qué fases comienzan `blocked`;
+- cuál pasa de `ready` a `in_progress` en un inicio normal;
+- qué ancestros quedan `not_applicable` al ingresar desde evidencia externa;
+- si la fase externa queda `accepted` o `awaiting_approval`;
+- cómo se construyen workflow, input, traceability y estado inicial.
+
+El use case queda limitado a validar input de aplicación, cargar configuración, resolver evidencia externa, solicitar artifacts, crear eventos y pedir el commit.
+
+### 4.4. Reloj, IDs y secuencia de eventos
+
+`SystemClock` entrega tiempo UTC y `CryptoIDGenerator` produce IDs `evt_` con 128 bits aleatorios. El ID ya no deriva del timestamp, por lo que dos eventos creados en el mismo instante no colisionan.
+
+Cada transición emite `phase.transitioned` con:
+
+```json
+{
+  "phase": "specification",
+  "from": "blocked",
+  "to": "ready",
+  "cause": "dependencies_satisfied"
+}
+```
+
+El orden se preserva dentro del mismo commit:
+
+1. evento que describe la intención principal;
+2. transición principal;
+3. transiciones derivadas por desbloqueo de dependencias.
+
+Para un inicio desde artifact externo se registra `work_item.created` antes de `phase.bypassed_by_external_input`, seguido de la transición de entrada. El mismo `operation_id` se conserva como `correlation_id` en todos los eventos de la operación.
+
+### 4.5. Composition root y salida de CLI
+
+`cmd/composition.go` es el único lugar que construye implementaciones productivas y las conecta con los casos de uso. Los archivos de comandos sólo:
+
+1. definen argumentos y flags;
+2. construyen el input tipado;
+3. ejecutan el use case;
+4. presentan el resultado.
+
+Todos los handlers usan `RunE`. Los errores llegan al root command, que decide entre salida de texto y `JSONResponse`; ningún helper llama `os.Exit`. El punto de entrada `main.go` es el único responsable de convertir un error en exit code `1`.
+
+Los tests se nombran por comportamiento:
+
+- `contract_integration_test.go`;
+- `idempotency_test.go`;
+- `dependency_injection_test.go`;
+- `cmd/root_test.go`.
+
+No se usan nombres asociados a fases del roadmap porque perderían significado cuando el backlog evolucione.
+
+## 5. Próximos pasos
 
 ```mermaid
 graph LR
-    CLI["✅ CLI Fases 1-3\nImplementadas"]
+    CLI["✅ CLI Fases 1-4\nImplementadas"]
     VALIDATE["🔴 sdd validate\nValidar manifest vs JSON Schema"]
     AGENT["🔴 Integración Agente\nOrquestador usa la CLI"]
     REJECT["🟡 sdd reject\nRechazar fase con motivo"]
@@ -361,4 +474,4 @@ graph LR
 
 ---
 
-*Motor SDD CLI v0.1 — Implementado el 2026-08-15*
+*Motor SDD CLI v0.1 — Actualizado el 2026-08-18*

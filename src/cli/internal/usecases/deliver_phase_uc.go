@@ -16,12 +16,27 @@ type DeliverPhaseInput struct {
 }
 
 type DeliverPhaseUseCase struct {
-	workItemRepo ports.WorkItemRepository
+	workItemRepo ports.WorkItemMutationRepository
 	workflowRepo ports.WorkflowRepository
+	artifacts    ports.ArtifactPreparer
+	clock        ports.Clock
+	idGenerator  ports.IDGenerator
 }
 
-func NewDeliverPhaseUseCase(workItemRepo ports.WorkItemRepository, workflowRepo ports.WorkflowRepository) *DeliverPhaseUseCase {
-	return &DeliverPhaseUseCase{workItemRepo: workItemRepo, workflowRepo: workflowRepo}
+func NewDeliverPhaseUseCase(
+	workItemRepo ports.WorkItemMutationRepository,
+	workflowRepo ports.WorkflowRepository,
+	artifacts ports.ArtifactPreparer,
+	clock ports.Clock,
+	idGenerator ports.IDGenerator,
+) *DeliverPhaseUseCase {
+	return &DeliverPhaseUseCase{
+		workItemRepo: workItemRepo,
+		workflowRepo: workflowRepo,
+		artifacts:    artifacts,
+		clock:        clock,
+		idGenerator:  idGenerator,
+	}
 }
 
 func (uc *DeliverPhaseUseCase) Execute(baseDir string, input DeliverPhaseInput) (*domain.WorkItem, error) {
@@ -44,21 +59,39 @@ func (uc *DeliverPhaseUseCase) Execute(baseDir string, input DeliverPhaseInput) 
 	if err != nil {
 		return nil, err
 	}
-	artifacts, err := prepareArtifactsForTransitions(baseDir, item, workflow, mutation.Unblocked)
+	artifacts, err := prepareArtifactsForTransitions(
+		baseDir,
+		item,
+		workflow,
+		mutation.Unblocked,
+		uc.artifacts,
+		uc.clock,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	events := []domain.Event{newOperationEvent(input.WorkItemID, "phase.transitioned", input.Actor, map[string]interface{}{
-		"phase": input.PhaseID,
-		"from":  mutation.Transition.From,
-		"to":    mutation.Transition.To,
-	}, input.OperationID)}
+	events, err := phaseMutationEvents(
+		input.WorkItemID,
+		mutation,
+		input.Actor,
+		"phase_delivered",
+		input.OperationID,
+		uc.clock,
+		uc.idGenerator,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	if mutation.Transition.To == domain.PhaseAwaitingApproval {
-		events = append(events, newOperationEvent(input.WorkItemID, "approval.requested", input.Actor, map[string]interface{}{
+		event, err := newOperationEvent(input.WorkItemID, "approval.requested", input.Actor, map[string]interface{}{
 			"phase": input.PhaseID,
-		}, input.OperationID))
+		}, input.OperationID, uc.clock, uc.idGenerator)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate approval event: %w", err)
+		}
+		events = append(events, event)
 	}
 
 	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, artifacts, events, input.OperationID)

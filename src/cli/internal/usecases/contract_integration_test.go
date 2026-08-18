@@ -243,7 +243,11 @@ func TestRecordEventAppliesEventSchema(t *testing.T) {
 		t.Fatalf("ReadFile() events before error = %v", err)
 	}
 
-	recordUC := usecases.NewRecordEventUseCase(repository)
+	recordUC := usecases.NewRecordEventUseCase(
+		repository,
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
 	err = recordUC.Execute(tmpDir, usecases.RecordEventInput{
 		WorkItemID: "event-validation",
 		EventType:  "INVALID EVENT TYPE",
@@ -329,7 +333,10 @@ func TestStatusRejectsStructurallyAndSemanticallyInvalidManifest(t *testing.T) {
 			manifestPath := filepath.Join(tmpDir, ".sdd", "work-items", "active", "manifest-validation", "manifest.yaml")
 			tt.mutate(t, manifestPath)
 
-			_, err := usecases.NewStatusUseCase(infra.NewFSWorkItemRepository()).Execute(tmpDir, "manifest-validation")
+			_, err := usecases.NewStatusUseCase(
+				infra.NewFSWorkItemRepository(),
+				infra.NewFSWorkflowRepository(),
+			).Execute(tmpDir, "manifest-validation")
 			if !errors.Is(err, tt.wantError) {
 				t.Fatalf("Status() error = %v, want %v", err, tt.wantError)
 			}
@@ -342,5 +349,8 @@ func newStartUseCase() *usecases.StartWorkItemUseCase {
 		infra.NewFSWorkItemRepository(),
 		infra.NewFSWorkflowRepository(),
 		infra.NewFSConfigRepository(),
+		infra.NewArtifactManager(),
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
 	)
 }

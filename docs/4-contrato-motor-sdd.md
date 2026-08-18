@@ -379,6 +379,10 @@ Campos opcionales de `actor` o `data`: adaptador, agente/rol, modelo, proveedor,
 
 `correlation_id` representa el identificador estable de la operación que produjo el evento. Los comandos mutantes aceptan un `operation_id` opcional: si un agente reintenta una operación ya confirmada con el mismo valor, el motor devuelve el estado persistido sin incrementar `revision` ni duplicar eventos.
 
+El `id` identifica al evento individual y se genera con 128 bits aleatorios, independientemente del timestamp. Por lo tanto, varios eventos creados en el mismo instante mantienen IDs distintos. El reloj y el generador son dependencias inyectables para que los tests puedan controlar ambos valores sin alterar la implementación productiva.
+
+Toda mutación de fase registra `phase.transitioned` con `phase`, `from`, `to` y `cause`. Cuando una transición desbloquea dependencias, esos cambios se registran después de la transición principal y dentro del mismo commit. En un inicio desde artefacto externo el orden es: `work_item.created`, `phase.bypassed_by_external_input` y la transición de la fase de entrada.
+
 ## 10. Procedimientos, skills y registro de capacidades
 
 Un **procedimiento** no es una skill: es el manual portable y canónico de una operación (`.sdd/procedures/create-plan.md`). Define objetivo, precondiciones, entradas, pasos, outputs, controles y criterio de terminación. Cualquier persona o agente puede seguirlo aunque no haya adaptador instalado.

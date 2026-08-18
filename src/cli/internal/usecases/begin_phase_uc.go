@@ -15,12 +15,24 @@ type BeginPhaseInput struct {
 }
 
 type BeginPhaseUseCase struct {
-	workItemRepo ports.WorkItemRepository
+	workItemRepo ports.WorkItemMutationRepository
 	workflowRepo ports.WorkflowRepository
+	clock        ports.Clock
+	idGenerator  ports.IDGenerator
 }
 
-func NewBeginPhaseUseCase(workItemRepo ports.WorkItemRepository, workflowRepo ports.WorkflowRepository) *BeginPhaseUseCase {
-	return &BeginPhaseUseCase{workItemRepo: workItemRepo, workflowRepo: workflowRepo}
+func NewBeginPhaseUseCase(
+	workItemRepo ports.WorkItemMutationRepository,
+	workflowRepo ports.WorkflowRepository,
+	clock ports.Clock,
+	idGenerator ports.IDGenerator,
+) *BeginPhaseUseCase {
+	return &BeginPhaseUseCase{
+		workItemRepo: workItemRepo,
+		workflowRepo: workflowRepo,
+		clock:        clock,
+		idGenerator:  idGenerator,
+	}
 }
 
 func (uc *BeginPhaseUseCase) Execute(baseDir string, input BeginPhaseInput) (*domain.WorkItem, error) {
@@ -44,13 +56,20 @@ func (uc *BeginPhaseUseCase) Execute(baseDir string, input BeginPhaseInput) (*do
 		return nil, err
 	}
 
-	event := newOperationEvent(input.WorkItemID, "phase.transitioned", input.Actor, map[string]interface{}{
-		"phase": input.PhaseID,
-		"from":  mutation.Transition.From,
-		"to":    mutation.Transition.To,
-	}, input.OperationID)
+	events, err := phaseMutationEvents(
+		input.WorkItemID,
+		mutation,
+		input.Actor,
+		"phase_begun",
+		input.OperationID,
+		uc.clock,
+		uc.idGenerator,
+	)
+	if err != nil {
+		return nil, err
+	}
 
-	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, nil, []domain.Event{event}, input.OperationID)
+	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, nil, events, input.OperationID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to commit phase transition: %w", err)
 	}

@@ -22,7 +22,7 @@ type FSWorkItemRepository struct {
 	commitHook func(stage string) error
 }
 
-func NewFSWorkItemRepository() ports.WorkItemRepository {
+func NewFSWorkItemRepository() *FSWorkItemRepository {
 	return &FSWorkItemRepository{}
 }
 

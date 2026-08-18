@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"sdd-cli/internal/domain"
 	"sdd-cli/internal/ports"
@@ -235,6 +236,8 @@ func persistInitialTestItem(
 
 func persistenceEvent(workItemID, eventType, operationID string) domain.Event {
 	event := domain.NewEvent(
+		"evt_"+operationID,
+		time.Date(2026, time.August, 18, 12, 0, 0, 0, time.UTC),
 		workItemID,
 		eventType,
 		domain.Actor{Kind: domain.ActorCLI, ID: "test"},
