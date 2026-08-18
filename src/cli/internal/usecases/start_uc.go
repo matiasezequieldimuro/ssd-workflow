@@ -52,14 +52,13 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 	phasesState := make(map[string]domain.PhaseState)
 
 	if in.FromArtifact != "" {
-		// Bypass mode
 		foundEntry := false
 		for _, ph := range wf.Phases {
+			artPath := wf.ArtifactPathForPhase(ph.ID)
 			if ph.ID == in.Phase {
 				foundEntry = true
-				artPath := fmt.Sprintf("artifacts/%s.md", ph.ID)
 				phasesState[ph.ID] = domain.PhaseState{
-					Status:   "accepted",
+					Status:   domain.PhaseBlocked,
 					Artifact: artPath,
 				}
 				continue
@@ -67,36 +66,26 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 
 			if !foundEntry {
 				phasesState[ph.ID] = domain.PhaseState{
-					Status: "not_applicable",
-				}
-			} else {
-				// The phase immediately following entry phase becomes ready
-				if len(phasesState) == countPhasesUntil(wf.Phases, in.Phase)+1 {
-					phasesState[ph.ID] = domain.PhaseState{
-						Status: "ready",
-					}
-				} else {
-					phasesState[ph.ID] = domain.PhaseState{
-						Status: "blocked",
-					}
-				}
-			}
-		}
-	} else {
-		// Standard start mode
-		for i, ph := range wf.Phases {
-			artPath := fmt.Sprintf("artifacts/%s.md", ph.ID)
-			if i == 0 {
-				phasesState[ph.ID] = domain.PhaseState{
-					Status:   "in_progress",
+					Status:   domain.PhaseNotApplicable,
 					Artifact: artPath,
 				}
 			} else {
 				phasesState[ph.ID] = domain.PhaseState{
-					Status: "blocked",
+					Status:   domain.PhaseBlocked,
+					Artifact: artPath,
 				}
 			}
 		}
+	} else {
+		for _, ph := range wf.Phases {
+			phasesState[ph.ID] = domain.PhaseState{
+				Status:   domain.PhaseBlocked,
+				Artifact: wf.ArtifactPathForPhase(ph.ID),
+			}
+		}
+		entryState := phasesState[entryPhase]
+		entryState.Status = domain.PhaseReady
+		phasesState[entryPhase] = entryState
 	}
 
 	inputSource := "user_prompt"
@@ -110,7 +99,7 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 		ID:            in.ID,
 		Title:         in.Title,
 		Type:          wf.WorkItemType,
-		Status:        "active",
+		Status:        domain.WorkItemActive,
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
 		CreatedBy:     &in.Actor,
 		Workflow: domain.WorkItemWorkflow{
@@ -126,6 +115,16 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 		Traceability: domain.Traceability{
 			Events: "events.jsonl",
 		},
+	}
+
+	if in.FromArtifact == "" {
+		if _, err := item.BeginPhase(wf, entryPhase); err != nil {
+			return nil, fmt.Errorf("failed to begin entry phase: %w", err)
+		}
+	} else {
+		if _, err := item.AcceptExternalPhase(wf, entryPhase); err != nil {
+			return nil, fmt.Errorf("failed to accept external entry phase: %w", err)
+		}
 	}
 
 	if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
@@ -146,7 +145,7 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 
 	// Copy external artifact if provided
 	if in.FromArtifact != "" {
-		targetArtifactPath := filepath.Join(baseDir, ".sdd", "work-items", "active", in.ID, "artifacts", fmt.Sprintf("%s.md", in.Phase))
+		targetArtifactPath := filepath.Join(baseDir, ".sdd", "work-items", "active", in.ID, wf.ArtifactPathForPhase(in.Phase))
 		if err := copyFile(in.FromArtifact, targetArtifactPath); err != nil {
 			return nil, fmt.Errorf("failed to copy external artifact: %w", err)
 		}
@@ -165,15 +164,6 @@ func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (
 	_ = uc.workItemRepo.AppendEvent(baseDir, in.ID, createEvent)
 
 	return item, nil
-}
-
-func countPhasesUntil(phases []domain.WorkflowPhase, phaseID string) int {
-	for i, ph := range phases {
-		if ph.ID == phaseID {
-			return i
-		}
-	}
-	return 0
 }
 
 func copyFile(src, dst string) error {

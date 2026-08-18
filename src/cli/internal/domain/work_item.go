@@ -1,5 +1,40 @@
 package domain
 
+import "fmt"
+
+type PhaseStatus string
+
+const (
+	PhaseNotApplicable    PhaseStatus = "not_applicable"
+	PhaseBlocked          PhaseStatus = "blocked"
+	PhaseReady            PhaseStatus = "ready"
+	PhaseInProgress       PhaseStatus = "in_progress"
+	PhaseAwaitingApproval PhaseStatus = "awaiting_approval"
+	PhaseApproved         PhaseStatus = "approved"
+	PhaseCompleted        PhaseStatus = "completed"
+	PhaseRejected         PhaseStatus = "rejected"
+	PhaseAccepted         PhaseStatus = "accepted"
+	PhaseSuperseded       PhaseStatus = "superseded"
+)
+
+type WorkItemStatus string
+
+const (
+	WorkItemActive    WorkItemStatus = "active"
+	WorkItemCompleted WorkItemStatus = "completed"
+	WorkItemArchived  WorkItemStatus = "archived"
+	WorkItemCancelled WorkItemStatus = "cancelled"
+)
+
+type ApprovalStatus string
+
+const (
+	ApprovalPending    ApprovalStatus = "pending"
+	ApprovalApproved   ApprovalStatus = "approved"
+	ApprovalRejected   ApprovalStatus = "rejected"
+	ApprovalSuperseded ApprovalStatus = "superseded"
+)
+
 type WorkItemWorkflow struct {
 	ID         string `json:"id" yaml:"id"`
 	Version    string `json:"version" yaml:"version"`
@@ -13,16 +48,16 @@ type WorkItemInput struct {
 }
 
 type PhaseState struct {
-	Status   string `json:"status" yaml:"status"` // not_applicable, blocked, ready, in_progress, awaiting_approval, approved, completed, rejected, accepted, superseded
-	Artifact string `json:"artifact,omitempty" yaml:"artifact,omitempty"`
+	Status   PhaseStatus `json:"status" yaml:"status"`
+	Artifact string      `json:"artifact,omitempty" yaml:"artifact,omitempty"`
 }
 
 type Approval struct {
-	Phase   string `json:"phase" yaml:"phase"`
-	Status  string `json:"status" yaml:"status"` // pending, approved, rejected, superseded
-	By      *Actor `json:"by,omitempty" yaml:"by,omitempty"`
-	At      string `json:"at,omitempty" yaml:"at,omitempty"`
-	Comment string `json:"comment,omitempty" yaml:"comment,omitempty"`
+	Phase   string         `json:"phase" yaml:"phase"`
+	Status  ApprovalStatus `json:"status" yaml:"status"`
+	By      *Actor         `json:"by,omitempty" yaml:"by,omitempty"`
+	At      string         `json:"at,omitempty" yaml:"at,omitempty"`
+	Comment string         `json:"comment,omitempty" yaml:"comment,omitempty"`
 }
 
 type Traceability struct {
@@ -50,7 +85,7 @@ type WorkItem struct {
 	ID            string                `json:"id" yaml:"id"`
 	Title         string                `json:"title" yaml:"title"`
 	Type          string                `json:"type" yaml:"type"`
-	Status        string                `json:"status" yaml:"status"` // active, completed, archived, cancelled
+	Status        WorkItemStatus        `json:"status" yaml:"status"`
 	CreatedAt     string                `json:"created_at" yaml:"created_at"`
 	CreatedBy     *Actor                `json:"created_by,omitempty" yaml:"created_by,omitempty"`
 	Workflow      WorkItemWorkflow      `json:"workflow" yaml:"workflow"`
@@ -59,4 +94,311 @@ type WorkItem struct {
 	Approvals     []Approval            `json:"approvals,omitempty" yaml:"approvals,omitempty"`
 	Traceability  Traceability          `json:"traceability" yaml:"traceability"`
 	Observability *Observability        `json:"observability,omitempty" yaml:"observability,omitempty"`
+}
+
+type PhaseTransition struct {
+	Phase string
+	From  PhaseStatus
+	To    PhaseStatus
+}
+
+type PhaseMutation struct {
+	Transition PhaseTransition
+	Unblocked  []PhaseTransition
+}
+
+type NextPhase struct {
+	Definition WorkflowPhase
+	State      PhaseState
+}
+
+func (item *WorkItem) BeginPhase(workflow *Workflow, phaseID string) (PhaseMutation, error) {
+	phase, state, err := item.phase(workflow, phaseID)
+	if err != nil {
+		return PhaseMutation{}, err
+	}
+	if !item.canMutatePhase(phase) {
+		return PhaseMutation{}, fmt.Errorf("%w: work item status is %s", ErrInvalidTransition, item.Status)
+	}
+	if state.Status != PhaseReady && state.Status != PhaseRejected && state.Status != PhaseSuperseded {
+		return PhaseMutation{}, invalidPhaseTransition(phaseID, state.Status, PhaseInProgress)
+	}
+
+	return item.transition(phaseID, PhaseInProgress), nil
+}
+
+func (item *WorkItem) AcceptExternalPhase(workflow *Workflow, phaseID string) (PhaseMutation, error) {
+	phase, state, err := item.phase(workflow, phaseID)
+	if err != nil {
+		return PhaseMutation{}, err
+	}
+	if item.Status != WorkItemActive {
+		return PhaseMutation{}, fmt.Errorf("%w: work item status is %s", ErrInvalidTransition, item.Status)
+	}
+	if state.Status != PhaseBlocked && state.Status != PhaseReady {
+		return PhaseMutation{}, invalidPhaseTransition(phaseID, state.Status, PhaseAccepted)
+	}
+
+	target := PhaseAccepted
+	if phase.Approval == ApprovalRequired {
+		target = PhaseAwaitingApproval
+	}
+
+	mutation := item.transition(phaseID, target)
+	if target == PhaseAwaitingApproval {
+		item.Approvals = append(item.Approvals, Approval{
+			Phase:  phaseID,
+			Status: ApprovalPending,
+		})
+	} else {
+		mutation.Unblocked = item.unlockReadyPhases(workflow)
+	}
+
+	return mutation, nil
+}
+
+func (item *WorkItem) DeliverPhase(workflow *Workflow, phaseID string, requestOptionalApproval bool) (PhaseMutation, error) {
+	phase, state, err := item.phase(workflow, phaseID)
+	if err != nil {
+		return PhaseMutation{}, err
+	}
+	if !item.canMutatePhase(phase) {
+		return PhaseMutation{}, fmt.Errorf("%w: work item status is %s", ErrInvalidTransition, item.Status)
+	}
+	if state.Status != PhaseInProgress {
+		return PhaseMutation{}, invalidPhaseTransition(phaseID, state.Status, PhaseCompleted)
+	}
+
+	var target PhaseStatus
+	switch phase.Approval {
+	case ApprovalRequired:
+		target = PhaseAwaitingApproval
+	case ApprovalOptional:
+		if requestOptionalApproval {
+			target = PhaseAwaitingApproval
+		} else {
+			target = PhaseCompleted
+		}
+	case ApprovalNone:
+		if requestOptionalApproval {
+			return PhaseMutation{}, fmt.Errorf("%w: phase %s has approval policy %s", ErrApprovalNotAllowed, phaseID, phase.Approval)
+		}
+		target = PhaseCompleted
+	default:
+		return PhaseMutation{}, fmt.Errorf("%w: unknown approval policy %q", ErrInvalidTransition, phase.Approval)
+	}
+
+	mutation := item.transition(phaseID, target)
+	if target == PhaseAwaitingApproval {
+		item.Approvals = append(item.Approvals, Approval{
+			Phase:  phaseID,
+			Status: ApprovalPending,
+		})
+	} else {
+		mutation.Unblocked = item.unlockReadyPhases(workflow)
+	}
+
+	return mutation, nil
+}
+
+func (item *WorkItem) ApprovePhase(workflow *Workflow, phaseID string, actor Actor, at, comment string) (PhaseMutation, error) {
+	phase, state, err := item.phase(workflow, phaseID)
+	if err != nil {
+		return PhaseMutation{}, err
+	}
+	if !item.canMutatePhase(phase) {
+		return PhaseMutation{}, fmt.Errorf("%w: work item status is %s", ErrInvalidTransition, item.Status)
+	}
+	if actor.Kind != ActorHuman {
+		return PhaseMutation{}, ErrHumanActorRequired
+	}
+	if phase.Approval == ApprovalNone {
+		return PhaseMutation{}, fmt.Errorf("%w: phase %s has approval policy %s", ErrApprovalNotAllowed, phaseID, phase.Approval)
+	}
+	if state.Status != PhaseAwaitingApproval {
+		return PhaseMutation{}, fmt.Errorf("%w: current status is %s", ErrPhaseNotAwaitingApproval, state.Status)
+	}
+
+	mutation := item.transition(phaseID, PhaseApproved)
+	item.resolvePendingApproval(phaseID, ApprovalApproved, actor, at, comment)
+	mutation.Unblocked = item.unlockReadyPhases(workflow)
+
+	return mutation, nil
+}
+
+func (item *WorkItem) RejectPhase(workflow *Workflow, phaseID string, actor Actor, at, comment string) (PhaseMutation, error) {
+	phase, state, err := item.phase(workflow, phaseID)
+	if err != nil {
+		return PhaseMutation{}, err
+	}
+	if !item.canMutatePhase(phase) {
+		return PhaseMutation{}, fmt.Errorf("%w: work item status is %s", ErrInvalidTransition, item.Status)
+	}
+	if actor.Kind != ActorHuman {
+		return PhaseMutation{}, ErrHumanActorRequired
+	}
+	if phase.Approval == ApprovalNone {
+		return PhaseMutation{}, fmt.Errorf("%w: phase %s has approval policy %s", ErrApprovalNotAllowed, phaseID, phase.Approval)
+	}
+	if state.Status != PhaseAwaitingApproval {
+		return PhaseMutation{}, fmt.Errorf("%w: current status is %s", ErrPhaseNotAwaitingApproval, state.Status)
+	}
+
+	mutation := item.transition(phaseID, PhaseRejected)
+	item.resolvePendingApproval(phaseID, ApprovalRejected, actor, at, comment)
+
+	return mutation, nil
+}
+
+func (item *WorkItem) CompletePhase(workflow *Workflow, phaseID string) (PhaseMutation, error) {
+	phase, state, err := item.phase(workflow, phaseID)
+	if err != nil {
+		return PhaseMutation{}, err
+	}
+	if !item.canMutatePhase(phase) {
+		return PhaseMutation{}, fmt.Errorf("%w: work item status is %s", ErrInvalidTransition, item.Status)
+	}
+	if state.Status != PhaseApproved && state.Status != PhaseAccepted {
+		return PhaseMutation{}, invalidPhaseTransition(phaseID, state.Status, PhaseCompleted)
+	}
+
+	mutation := item.transition(phaseID, PhaseCompleted)
+	mutation.Unblocked = item.unlockReadyPhases(workflow)
+
+	return mutation, nil
+}
+
+func (item *WorkItem) Complete(workflow *Workflow) error {
+	if item.Status != WorkItemActive {
+		return fmt.Errorf("%w: current status is %s", ErrWorkItemCannotComplete, item.Status)
+	}
+
+	for _, phase := range workflow.Phases {
+		state, exists := item.Phases[phase.ID]
+		if !exists {
+			return fmt.Errorf("%w: phase %s has no state", ErrWorkItemCannotComplete, phase.ID)
+		}
+
+		if phase.Optional {
+			if state.Status == PhaseBlocked || state.Status == PhaseReady || state.Status == PhaseNotApplicable {
+				continue
+			}
+			if !state.Status.satisfiesCompletion() {
+				return fmt.Errorf("%w: optional phase %s was started and is %s", ErrWorkItemCannotComplete, phase.ID, state.Status)
+			}
+			continue
+		}
+
+		if !state.Status.satisfiesCompletion() {
+			return fmt.Errorf("%w: required phase %s is %s", ErrWorkItemCannotComplete, phase.ID, state.Status)
+		}
+	}
+
+	item.Status = WorkItemCompleted
+	return nil
+}
+
+func (item *WorkItem) NextPhase(workflow *Workflow) (*NextPhase, error) {
+	priorities := []PhaseStatus{PhaseAwaitingApproval, PhaseInProgress, PhaseReady}
+	for _, status := range priorities {
+		for _, phase := range workflow.Phases {
+			state, exists := item.Phases[phase.ID]
+			if exists && state.Status == status {
+				return &NextPhase{Definition: phase, State: state}, nil
+			}
+		}
+	}
+
+	return nil, nil
+}
+
+func (item *WorkItem) phase(workflow *Workflow, phaseID string) (WorkflowPhase, PhaseState, error) {
+	phase, exists := workflow.Phase(phaseID)
+	if !exists {
+		return WorkflowPhase{}, PhaseState{}, ErrPhaseNotFound
+	}
+	state, exists := item.Phases[phaseID]
+	if !exists {
+		return WorkflowPhase{}, PhaseState{}, ErrPhaseNotFound
+	}
+
+	return phase, state, nil
+}
+
+func (item *WorkItem) canMutatePhase(phase WorkflowPhase) bool {
+	return item.Status == WorkItemActive || (item.Status == WorkItemCompleted && phase.Optional)
+}
+
+func (item *WorkItem) transition(phaseID string, target PhaseStatus) PhaseMutation {
+	state := item.Phases[phaseID]
+	transition := PhaseTransition{Phase: phaseID, From: state.Status, To: target}
+	state.Status = target
+	item.Phases[phaseID] = state
+	return PhaseMutation{Transition: transition}
+}
+
+func (item *WorkItem) unlockReadyPhases(workflow *Workflow) []PhaseTransition {
+	var transitions []PhaseTransition
+	for _, phase := range workflow.Phases {
+		state, exists := item.Phases[phase.ID]
+		if !exists || state.Status != PhaseBlocked || !item.dependenciesSatisfied(phase) {
+			continue
+		}
+
+		state.Status = PhaseReady
+		if state.Artifact == "" {
+			state.Artifact = workflow.ArtifactPathForPhase(phase.ID)
+		}
+		item.Phases[phase.ID] = state
+		transitions = append(transitions, PhaseTransition{
+			Phase: phase.ID,
+			From:  PhaseBlocked,
+			To:    PhaseReady,
+		})
+	}
+
+	return transitions
+}
+
+func (item *WorkItem) dependenciesSatisfied(phase WorkflowPhase) bool {
+	for _, requiredPhaseID := range phase.Requires {
+		requiredState, exists := item.Phases[requiredPhaseID]
+		if !exists || !requiredState.Status.satisfiesDependency() {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (item *WorkItem) resolvePendingApproval(phaseID string, status ApprovalStatus, actor Actor, at, comment string) {
+	for i := len(item.Approvals) - 1; i >= 0; i-- {
+		if item.Approvals[i].Phase == phaseID && item.Approvals[i].Status == ApprovalPending {
+			item.Approvals[i].Status = status
+			item.Approvals[i].By = &actor
+			item.Approvals[i].At = at
+			item.Approvals[i].Comment = comment
+			return
+		}
+	}
+
+	item.Approvals = append(item.Approvals, Approval{
+		Phase:   phaseID,
+		Status:  status,
+		By:      &actor,
+		At:      at,
+		Comment: comment,
+	})
+}
+
+func (status PhaseStatus) satisfiesDependency() bool {
+	return status == PhaseApproved || status == PhaseCompleted || status == PhaseAccepted
+}
+
+func (status PhaseStatus) satisfiesCompletion() bool {
+	return status.satisfiesDependency() || status == PhaseNotApplicable
+}
+
+func invalidPhaseTransition(phaseID string, from, to PhaseStatus) error {
+	return fmt.Errorf("%w: phase %s cannot transition from %s to %s", ErrInvalidTransition, phaseID, from, to)
 }

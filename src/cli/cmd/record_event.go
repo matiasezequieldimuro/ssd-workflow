@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	eventType   string
-	eventMsg    string
+	eventType    string
+	eventMsg     string
 	eventActKind string
 	eventActID   string
 )
@@ -27,7 +27,7 @@ var recordEventCmd = &cobra.Command{
 		uc := usecases.NewRecordEventUseCase(wiRepo)
 
 		actor := domain.Actor{
-			Kind: eventActKind,
+			Kind: domain.ActorKind(eventActKind),
 			ID:   eventActID,
 		}
 

@@ -61,9 +61,10 @@ sequenceDiagram
     FS->>Disk: Lee manifest.yaml
     Disk-->>FS: WorkItem struct
     FS-->>UC: WorkItem
-    UC->>UC: Valida status == awaiting_approval ó in_progress
-    UC->>UC: Actualiza phase prd → approved
-    UC->>UC: Desbloquea fases dependientes → ready
+    UC->>UC: Dominio valida status == awaiting_approval
+    UC->>UC: Dominio exige actor human
+    UC->>UC: Transición prd → approved
+    UC->>UC: Dominio desbloquea dependencias → ready
     UC->>FS: SaveWorkItem(updatedItem)
     FS->>Disk: Escribe manifest.yaml actualizado
     UC->>FS: AppendEvent(approval.recorded)
@@ -76,11 +77,11 @@ sequenceDiagram
 
 | Capa | Archivos | Responsabilidad |
 | :--- | :--- | :--- |
-| **Domain** | `work_item.go`, `workflow.go`, `event.go`, `errors.go` | Definir las entidades y errores del contrato |
+| **Domain** | `work_item.go`, `workflow.go`, `event.go`, `errors.go` | Entidades, tipos e invariantes de transición |
 | **Ports** | `repository.go` | Interfaces `WorkItemRepository` y `WorkflowRepository` |
 | **Infra** | `fs_repository.go` | Leer/escribir YAML (manifiestos) y JSONL (eventos) en disco |
-| **Use Cases** | `init_uc.go`, `start_uc.go`, `status_uc.go`, `approve_uc.go`, `next_uc.go`, `record_event_uc.go` | Lógica de negocio pura, testeable e independiente del disco |
-| **CMD** | `root.go`, `init.go`, `start.go`, `status.go`, `approve.go`, `next.go`, `record_event.go` | Parseo de argumentos con Cobra, presentación de resultados |
+| **Use Cases** | `init_uc.go`, `start_uc.go`, `begin_phase_uc.go`, `deliver_phase_uc.go`, `approve_uc.go`, `complete_uc.go`, `next_uc.go`, `record_event_uc.go` | Orquestación de operaciones y persistencia |
+| **CMD** | `root.go`, `init.go`, `start.go`, `status.go`, `begin.go`, `deliver.go`, `approve.go`, `complete.go`, `next.go`, `record_event.go` | Parseo de argumentos con Cobra y presentación de resultados |
 | **Embeds** | `embeds.go`, `default_sdd/` | Templates de `.sdd/` embebidos en el binario para `sdd init` |
 
 ---
@@ -96,8 +97,9 @@ cd /Users/matiasdimuro/Documents/Webdev/sdd-harness/src/cli
 
 Incluye:
 - `TestParseValidFixtures` — parsea los 7 fixtures JSON del contrato (en `src/.sdd/tests/fixtures/valid/`)
-- `TestFullWorkItemLifecycle` — ciclo completo: init → start → status → approve → next → record-event
-- `TestBypassModeStart` — inicio desde artefacto externo existente (bypass de fases)
+- `TestFullWorkItemLifecycle` — ciclo obligatorio completo: init → start → deliver/approve → begin → implementación/verificación → code review → complete
+- `TestBypassModeStart` — inicio desde artefacto externo, incluyendo el gate requerido
+- `state_machine_test.go` — transiciones table-driven, gates humanos, rework y fases opcionales
 
 ### B) Compilar el binario
 
@@ -125,8 +127,10 @@ $SDD init
 $SDD start feat-001 --title "Feature de prueba" --summary "Probar el motor"
 $SDD status feat-001
 $SDD next feat-001
+$SDD deliver feat-001 --phase prd --actor-id copilot
 $SDD approve feat-001 --phase prd --by matias --comment "OK"
 $SDD next feat-001 --json
+$SDD begin feat-001 --phase specification --actor-id copilot
 ```
 
 ### D) Instalar globalmente (más cómodo)
@@ -227,12 +231,49 @@ sdd approve feat-023 --phase specification --by matias --comment "Revisado y OK"
 | `--by` / `-b` | ❌ | `human` | ID del aprobador humano |
 | `--comment` / `-c` | ❌ | — | Comentario opcional |
 
-> ⚠️ Solo aprueba fases en estado `awaiting_approval` o `in_progress`. La CLI no permite autoaprobación de agentes.
+> Sólo aprueba fases en estado `awaiting_approval`, con política `required` u `optional`. La invariante de actor humano vive en el dominio, no sólo en Cobra.
+
+---
+
+### `sdd begin <id>`
+Comienza explícitamente una fase `ready`, `rejected` o `superseded`.
+
+```bash
+sdd begin feat-023 --phase specification --actor-kind agent --actor-id copilot
+```
+
+`next` nunca realiza esta transición: sólo informa qué fase corresponde.
+
+---
+
+### `sdd deliver <id>`
+Entrega la evidencia de una fase `in_progress`.
+
+```bash
+sdd deliver feat-023 --phase specification --actor-id copilot
+sdd deliver feat-023 --phase archive --request-approval
+```
+
+- `approval: required` produce `awaiting_approval`.
+- `approval: optional` produce `completed`, salvo que se use `--request-approval`.
+- `approval: none` produce `completed` y rechaza `--request-approval`.
+
+---
+
+### `sdd complete <id>`
+Completa una fase `approved`/`accepted`, o el work item si se omite `--phase`.
+
+```bash
+sdd complete feat-023 --phase prd
+sdd complete feat-023
+```
+
+El work item sólo puede completarse cuando todas las fases obligatorias están satisfechas. Una fase opcional puede omitirse, pero si comenzó también debe terminar.
 
 ---
 
 ### `sdd next <id>`
-Informa cuál es la próxima fase activa, qué procedimiento seguir y si requiere aprobación humana.
+Informa cuál es la próxima fase activa, qué procedimiento seguir y si requiere aprobación humana. Es una consulta pura: no escribe el manifest ni inicia la fase.
 
 ```bash
 sdd next feat-023
@@ -249,7 +290,8 @@ sdd next feat-023 --json
     "procedure": "generate-specification",
     "artifact": "artifacts/specification.md",
     "needs_approval": true,
-    "message": "Next active phase is 'specification' (ready)."
+    "optional": false,
+    "message": "Next active phase is 'specification' (ready). Follow procedure 'generate-specification'."
   }
 }
 ```

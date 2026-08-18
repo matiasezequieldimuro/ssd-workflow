@@ -2,9 +2,18 @@ package domain
 
 import "time"
 
+type ActorKind string
+
+const (
+	ActorHuman  ActorKind = "human"
+	ActorAgent  ActorKind = "agent"
+	ActorCLI    ActorKind = "cli"
+	ActorSystem ActorKind = "system"
+)
+
 type Actor struct {
-	Kind string `json:"kind" yaml:"kind"` // human, agent, cli, system
-	ID   string `json:"id" yaml:"id"`
+	Kind ActorKind `json:"kind" yaml:"kind"`
+	ID   string    `json:"id" yaml:"id"`
 }
 
 type Event struct {

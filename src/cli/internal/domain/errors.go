@@ -10,4 +10,7 @@ var (
 	ErrPhaseNotAwaitingApproval = errors.New("phase is not awaiting approval")
 	ErrPhaseBlocked             = errors.New("phase is blocked and cannot be started")
 	ErrInvalidTransition        = errors.New("invalid phase transition")
+	ErrHumanActorRequired       = errors.New("a human actor is required")
+	ErrApprovalNotAllowed       = errors.New("phase does not allow approval")
+	ErrWorkItemCannotComplete   = errors.New("work item cannot be completed")
 )

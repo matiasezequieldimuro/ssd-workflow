@@ -63,7 +63,21 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 		t.Errorf("Expected title 'Test Lifecycle Feature', got '%s'", statusItem.Title)
 	}
 
-	// 3. Approve PRD phase
+	// 3. Deliver PRD phase for approval
+	deliverUC := usecases.NewDeliverPhaseUseCase(wiRepo, wfRepo)
+	deliveredItem, err := deliverUC.Execute(tmpDir, usecases.DeliverPhaseInput{
+		WorkItemID: "feat-test-lifecycle",
+		PhaseID:    "prd",
+		Actor:      actor,
+	})
+	if err != nil {
+		t.Fatalf("DeliverPhaseUseCase failed: %v", err)
+	}
+	if deliveredItem.Phases["prd"].Status != domain.PhaseAwaitingApproval {
+		t.Errorf("Expected prd status 'awaiting_approval', got '%s'", deliveredItem.Phases["prd"].Status)
+	}
+
+	// 4. Approve PRD phase
 	approveUC := usecases.NewApproveUseCase(wiRepo, wfRepo)
 	approvedItem, err := approveUC.Execute(tmpDir, usecases.ApproveInput{
 		WorkItemID: "feat-test-lifecycle",
@@ -81,7 +95,7 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 		t.Errorf("Expected specification status 'ready', got '%s'", approvedItem.Phases["specification"].Status)
 	}
 
-	// 4. Next Action Check
+	// 5. Next Action Check
 	nextUC := usecases.NewNextUseCase(wiRepo, wfRepo)
 	nextAction, err := nextUC.Execute(tmpDir, "feat-test-lifecycle")
 	if err != nil {
@@ -90,8 +104,127 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	if nextAction.PhaseID != "specification" {
 		t.Errorf("Expected next phase 'specification', got '%s'", nextAction.PhaseID)
 	}
+	if nextAction.Status != string(domain.PhaseReady) {
+		t.Errorf("Expected next phase status 'ready', got '%s'", nextAction.Status)
+	}
+	persistedItem, err := wiRepo.GetWorkItem(tmpDir, "feat-test-lifecycle")
+	if err != nil {
+		t.Fatalf("GetWorkItem failed after next: %v", err)
+	}
+	if persistedItem.Phases["specification"].Status != domain.PhaseReady {
+		t.Errorf("Expected next to leave specification 'ready', got '%s'", persistedItem.Phases["specification"].Status)
+	}
 
-	// 5. Record Event
+	// 6. Begin specification explicitly
+	beginUC := usecases.NewBeginPhaseUseCase(wiRepo, wfRepo)
+	begunItem, err := beginUC.Execute(tmpDir, usecases.BeginPhaseInput{
+		WorkItemID: "feat-test-lifecycle",
+		PhaseID:    "specification",
+		Actor:      actor,
+	})
+	if err != nil {
+		t.Fatalf("BeginPhaseUseCase failed: %v", err)
+	}
+	if begunItem.Phases["specification"].Status != domain.PhaseInProgress {
+		t.Errorf("Expected specification status 'in_progress', got '%s'", begunItem.Phases["specification"].Status)
+	}
+
+	// 7. Complete remaining mandatory phases
+	for _, phaseID := range []string{"specification", "plan"} {
+		deliveredItem, err = deliverUC.Execute(tmpDir, usecases.DeliverPhaseInput{
+			WorkItemID: "feat-test-lifecycle",
+			PhaseID:    phaseID,
+			Actor:      actor,
+		})
+		if err != nil {
+			t.Fatalf("DeliverPhaseUseCase failed for %s: %v", phaseID, err)
+		}
+		if deliveredItem.Phases[phaseID].Status != domain.PhaseAwaitingApproval {
+			t.Fatalf("Expected %s awaiting approval, got %s", phaseID, deliveredItem.Phases[phaseID].Status)
+		}
+
+		approvedItem, err = approveUC.Execute(tmpDir, usecases.ApproveInput{
+			WorkItemID: "feat-test-lifecycle",
+			PhaseID:    phaseID,
+			ApprovedBy: actor,
+		})
+		if err != nil {
+			t.Fatalf("ApproveUseCase failed for %s: %v", phaseID, err)
+		}
+
+		nextPhaseID := "plan"
+		if phaseID == "plan" {
+			nextPhaseID = "implementation"
+		}
+		begunItem, err = beginUC.Execute(tmpDir, usecases.BeginPhaseInput{
+			WorkItemID: "feat-test-lifecycle",
+			PhaseID:    nextPhaseID,
+			Actor:      actor,
+		})
+		if err != nil {
+			t.Fatalf("BeginPhaseUseCase failed for %s: %v", nextPhaseID, err)
+		}
+	}
+
+	for _, phaseID := range []string{"implementation", "verification"} {
+		deliveredItem, err = deliverUC.Execute(tmpDir, usecases.DeliverPhaseInput{
+			WorkItemID: "feat-test-lifecycle",
+			PhaseID:    phaseID,
+			Actor:      actor,
+		})
+		if err != nil {
+			t.Fatalf("DeliverPhaseUseCase failed for %s: %v", phaseID, err)
+		}
+		if deliveredItem.Phases[phaseID].Status != domain.PhaseCompleted {
+			t.Fatalf("Expected %s completed, got %s", phaseID, deliveredItem.Phases[phaseID].Status)
+		}
+
+		nextPhaseID := "verification"
+		if phaseID == "verification" {
+			nextPhaseID = "human-code-review"
+		}
+		begunItem, err = beginUC.Execute(tmpDir, usecases.BeginPhaseInput{
+			WorkItemID: "feat-test-lifecycle",
+			PhaseID:    nextPhaseID,
+			Actor:      actor,
+		})
+		if err != nil {
+			t.Fatalf("BeginPhaseUseCase failed for %s: %v", nextPhaseID, err)
+		}
+	}
+
+	if _, err = deliverUC.Execute(tmpDir, usecases.DeliverPhaseInput{
+		WorkItemID: "feat-test-lifecycle",
+		PhaseID:    "human-code-review",
+		Actor:      actor,
+	}); err != nil {
+		t.Fatalf("DeliverPhaseUseCase failed for human-code-review: %v", err)
+	}
+	approvedItem, err = approveUC.Execute(tmpDir, usecases.ApproveInput{
+		WorkItemID: "feat-test-lifecycle",
+		PhaseID:    "human-code-review",
+		ApprovedBy: actor,
+	})
+	if err != nil {
+		t.Fatalf("ApproveUseCase failed for human-code-review: %v", err)
+	}
+	if approvedItem.Phases["archive"].Status != domain.PhaseReady {
+		t.Fatalf("Expected optional archive ready, got %s", approvedItem.Phases["archive"].Status)
+	}
+
+	completeUC := usecases.NewCompleteUseCase(wiRepo, wfRepo)
+	completedItem, err := completeUC.Execute(tmpDir, usecases.CompleteInput{
+		WorkItemID: "feat-test-lifecycle",
+		Actor:      actor,
+	})
+	if err != nil {
+		t.Fatalf("CompleteUseCase failed: %v", err)
+	}
+	if completedItem.Status != domain.WorkItemCompleted {
+		t.Fatalf("Expected work item completed, got %s", completedItem.Status)
+	}
+
+	// 8. Record Event
 	recordEventUC := usecases.NewRecordEventUseCase(wiRepo)
 	err = recordEventUC.Execute(tmpDir, usecases.RecordEventInput{
 		WorkItemID: "feat-test-lifecycle",
@@ -133,16 +266,29 @@ func TestBypassModeStart(t *testing.T) {
 		t.Fatalf("StartWorkItemUseCase bypass mode failed: %v", err)
 	}
 
-	if item.Phases["prd"].Status != "accepted" {
-		t.Errorf("Expected prd status 'accepted', got '%s'", item.Phases["prd"].Status)
+	if item.Phases["prd"].Status != domain.PhaseAwaitingApproval {
+		t.Errorf("Expected prd status 'awaiting_approval', got '%s'", item.Phases["prd"].Status)
 	}
-	if item.Phases["specification"].Status != "ready" {
-		t.Errorf("Expected specification status 'ready', got '%s'", item.Phases["specification"].Status)
+	if item.Phases["specification"].Status != domain.PhaseBlocked {
+		t.Errorf("Expected specification status 'blocked', got '%s'", item.Phases["specification"].Status)
 	}
 
 	// Verify external artifact file was copied
 	copiedArtPath := filepath.Join(tmpDir, ".sdd", "work-items", "active", "feat-bypass", "artifacts", "prd.md")
 	if _, err := os.Stat(copiedArtPath); err != nil {
 		t.Errorf("Expected copied artifact at %s, but file not found: %v", copiedArtPath, err)
+	}
+
+	approveUC := usecases.NewApproveUseCase(wiRepo, wfRepo)
+	approvedItem, err := approveUC.Execute(tmpDir, usecases.ApproveInput{
+		WorkItemID: "feat-bypass",
+		PhaseID:    "prd",
+		ApprovedBy: actor,
+	})
+	if err != nil {
+		t.Fatalf("ApproveUseCase failed for external artifact: %v", err)
+	}
+	if approvedItem.Phases["specification"].Status != domain.PhaseReady {
+		t.Errorf("Expected specification status 'ready' after approval, got '%s'", approvedItem.Phases["specification"].Status)
 	}
 }

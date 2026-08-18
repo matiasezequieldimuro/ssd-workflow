@@ -31,6 +31,7 @@
         "produces": { "type": "array", "items": { "type": "string" } },
         "procedure": { "type": "string" },
         "approval": { "enum": ["none", "required", "optional"] },
+        "optional": { "type": "boolean", "default": false },
         "effects": { "type": "array", "items": { "type": "string" } }
       },
       "additionalProperties": false

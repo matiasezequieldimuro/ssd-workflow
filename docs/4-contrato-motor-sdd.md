@@ -200,7 +200,8 @@ phases:
     requires: [human-code-review]
     produces: [archive-record]
     procedure: archive
-    approval: optional
+    approval: none
+    optional: true
     effects: [changelog_write, git_commit, git_push, pull_request]
 
 artifacts:
@@ -218,8 +219,11 @@ Reglas del grafo:
 - Un workflow es acíclico y cada `id` es único, kebab-case.
 - `requires` significa que la fase requerida está en `approved`, `completed` o `accepted` cuando el artefacto fue aportado por el usuario.
 - `approval: required` convierte el estado de una fase generada en `awaiting_approval`; no basta que el archivo exista.
+- `approval: optional` permite que quien entrega la fase solicite explícitamente revisión humana; si no la solicita, la entrega completa la fase.
+- `approval: none` completa la fase al entregar su evidencia y no admite `approve`.
+- `optional: true` indica que la fase completa puede omitirse. Es independiente de la política de aprobación; si una fase opcional se inicia, debe finalizar normalmente.
 - `effects` expresa el potencial de mutación. El motor no ejecuta herramientas: una futura capa de políticas/adaptador decide permiso y registra la autorización.
-- `archive` puede ser `optional`, pero si se inicia debe respetar sus dependencias y dejar evidencia. Nunca se infiere por el agente.
+- `archive` es una fase opcional sin gate de aprobación, pero si se inicia debe respetar sus dependencias y dejar evidencia. Nunca se infiere por el agente.
 - El workflow no prescribe agente, modelo ni subagente. Esa elección es una estrategia de ejecución del adaptador y se registra como evento.
 
 ## 6. Workflows iniciales
@@ -291,15 +295,32 @@ observability:
 Estados permitidos para una fase:
 
 ```text
-blocked → ready → in_progress → awaiting_approval → approved → completed
-                                    │                  │
-                                    └── rejected ──────┘
+blocked → ready → in_progress ─────────────────────────────→ completed
+                         │
+                         └→ awaiting_approval → approved → completed
+                                              └→ rejected → in_progress
 
 Entrada humana: accepted → completed
-                         \→ awaiting_approval (si el workflow exige revisión)
+                         └→ awaiting_approval → approved → completed
 ```
 
-`completed` es para una fase sin gate o para una fase aprobada cuyo efecto ya fue aplicado. `approved` conserva la distinción esencial entre “el humano aceptó el plan” y “la implementación terminó”. Una corrección sustancial de un artefacto aprobado lo marca `superseded`, invalida dependientes configurados por el motor y requiere una nueva aprobación; no se permite editar silenciosamente un plan aprobado.
+Operaciones de transición:
+
+| Operación | Origen | Destino | Regla |
+| --- | --- | --- | --- |
+| `begin phase` | `ready`, `rejected`, `superseded` | `in_progress` | Una fase bloqueada nunca puede comenzar. |
+| `deliver phase` | `in_progress` | `awaiting_approval` | Obligatorio con `approval: required`; opcional si `approval: optional` y se solicita revisión. |
+| `deliver phase` | `in_progress` | `completed` | Automático con `approval: none`; también con `approval: optional` si no se solicita revisión. |
+| `approve phase` | `awaiting_approval` | `approved` | Sólo un actor `human`; `approval: none` no admite esta operación. |
+| `reject phase` | `awaiting_approval` | `rejected` | Sólo un actor `human`; una nueva iteración usa `begin phase`. |
+| `complete phase` | `approved`, `accepted` | `completed` | Indica que el efecto o uso posterior de una fase ya fue aplicado. |
+| desbloqueo | `blocked` | `ready` | Automático cuando todas las dependencias están `approved`, `completed` o `accepted`. |
+
+`approved` significa que el humano aceptó la entrega; no significa que sus efectos posteriores ya se aplicaron. `completed` se asigna al entregar una fase sin gate o mediante `complete phase` sobre una fase `approved` o `accepted`.
+
+El work item se completa mediante una operación explícita cuando todas las fases obligatorias están en `approved`, `completed`, `accepted` o `not_applicable`. Una fase `optional: true` puede permanecer `blocked` o `ready`; si llegó a iniciarse, también debe quedar satisfecha antes de completar el work item.
+
+Una corrección sustancial de un artefacto aprobado lo marca `superseded`, invalida dependientes configurados por el motor y requiere una nueva aprobación; no se permite editar silenciosamente un plan aprobado.
 
 Al iniciar desde un artefacto que aporta el usuario, sólo son elegibles los `entry_points` declarados por el workflow. La fase queda `accepted` y se registra su procedencia y hash; las fases anteriores se marcan `not_applicable` con un evento `phase_bypassed_by_external_input`. No existe un comando genérico de “skip phase”.
 
@@ -400,7 +421,7 @@ Estas reglas definen el comportamiento, aunque la CLI se implemente después:
 
 1. Crear las carpetas vacías, `config.yaml`, cinco workflows y sus plantillas mínimas.
 2. Publicar los tres JSON Schemas y tests de fixtures válidos/inválidos; esto fija el contrato antes de escribir la CLI.
-3. Implementar una CLI mínima: `init`, `start`, `status --json`, `next --json`, `approve`, `validate` y `record-event`.
+3. Implementar una CLI mínima: `init`, `start`, `status --json`, `next --json`, `begin`, `deliver`, `approve`, `complete`, `validate` y `record-event`.
 4. Ejercitar manualmente cada workflow con work items de ejemplo, incluidos rechazo, input externo y un intento inválido de implementar sin plan aprobado.
 5. Recién entonces crear el adaptador inicial y sus capacidades; posteriormente, memoria semántica, CodeGraph, métricas avanzadas y automatización de archive.
 

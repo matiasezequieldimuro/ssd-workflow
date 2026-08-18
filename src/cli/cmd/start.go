@@ -31,7 +31,7 @@ var startCmd = &cobra.Command{
 		uc := usecases.NewStartWorkItemUseCase(wiRepo, wfRepo)
 
 		actor := domain.Actor{
-			Kind: actorKind,
+			Kind: domain.ActorKind(actorKind),
 			ID:   actorID,
 		}
 
