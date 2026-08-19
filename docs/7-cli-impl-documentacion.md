@@ -80,7 +80,7 @@ sequenceDiagram
 | **Domain** | `work_item.go`, `workflow.go`, `event.go`, `errors.go` | Entidades, tipos e invariantes de transición |
 | **Ports** | `repository.go` | Lectura, existencia, idempotencia, commit conjunto, artifacts, inicialización, reloj e IDs |
 | **Infra** | `fs_repository.go`, `artifact_manager.go`, `project_initializer.go`, `runtime.go` | Filesystem transaccional, templates locales, inicialización, reloj de sistema e IDs aleatorios |
-| **Use Cases** | `init_uc.go`, `start_uc.go`, `begin_phase_uc.go`, `deliver_phase_uc.go`, `approve_uc.go`, `complete_uc.go`, `next_uc.go`, `record_event_uc.go` | Orquestación de operaciones y persistencia |
+| **Use Cases** | `init_uc.go`, `start_uc.go`, `begin_phase_uc.go`, `deliver_phase_uc.go`, `approve_uc.go`, `reject_uc.go`, `complete_uc.go`, `next_uc.go`, `record_event_uc.go` | Orquestación de operaciones y persistencia |
 | **CMD** | `composition.go`, `root.go` y comandos | Composición centralizada, parseo con Cobra `RunE` y contrato uniforme de salida |
 | **Embeds** | `embeds.go`, `default_sdd/` | Templates de `.sdd/` embebidos en el binario para `sdd init` |
 
@@ -98,7 +98,7 @@ cd /Users/matiasdimuro/Documents/Webdev/sdd-harness/src/cli
 Incluye:
 - `TestContractFixtures` — valida estructural y semánticamente los fixtures JSON del contrato
 - `TestEveryWorkflowCompletesItsMandatoryLifecycle` — descubre todos los `*.workflow.yaml` y completa sus fases obligatorias con artifacts, eventos y manifest válidos
-- `TestCLICompletesFastChangeLifecycle` — compila el binario y recorre init → start → next/status → begin/deliver/approve → complete → record-event, validando stdout, stderr y exit codes
+- `TestCLICompletesFastChangeLifecycle` — compila el binario y recorre init → start → next/status → deliver/reject/rework/approve → complete → record-event, validando stdout, stderr y exit codes
 - `TestFullWorkItemLifecycle` — ciclo de integración detallado del workflow `feature-standard`
 - `TestBypassModeStart` — inicio desde artefacto externo, incluyendo el gate requerido
 - `state_machine_test.go` — transiciones table-driven, gates humanos, rework y fases opcionales
@@ -135,6 +135,9 @@ $SDD start feat-001 --title "Feature de prueba" --summary "Probar el motor"
 $SDD status feat-001
 $SDD next feat-001
 $SDD deliver feat-001 --phase prd --actor-id copilot
+$SDD reject feat-001 --phase prd --by matias --comment "Ajustar criterios"
+$SDD begin feat-001 --phase prd --actor-id copilot
+$SDD deliver feat-001 --phase prd --actor-id copilot
 $SDD approve feat-001 --phase prd --by matias --comment "OK"
 $SDD next feat-001 --json
 $SDD begin feat-001 --phase specification --actor-id copilot
@@ -159,7 +162,7 @@ Todos los comandos comparten flags globales:
 | `--json` | Salida en formato JSON estructurado (para agentes IA) | `false` |
 | `--dir` | Directorio raíz del proyecto destino | `.` (directorio actual) |
 
-Los comandos mutantes (`start`, `begin`, `deliver`, `approve`, `complete` y `record-event`) aceptan `--operation-id`. El agente debe reutilizar el mismo valor al reintentar una invocación incierta; una operación ya confirmada devuelve el estado existente sin duplicar eventos ni aumentar la revisión.
+Los comandos mutantes (`start`, `begin`, `deliver`, `approve`, `reject`, `complete` y `record-event`) aceptan `--operation-id`. El agente debe reutilizar el mismo valor al reintentar una invocación incierta; una operación ya confirmada devuelve el estado existente sin duplicar eventos ni aumentar la revisión.
 
 La v0.1 admite múltiples lectores, pero sólo un escritor simultáneo por work item. Cada mutación confirma conjuntamente manifest, artifacts y eventos; una revisión obsoleta o un lock ocupado producen error sin sobrescribir estado.
 
@@ -259,6 +262,25 @@ sdd approve feat-023 --phase specification --by matias --comment "Revisado y OK"
 | `--operation-id` | ❌ | — | Clave estable para reintentos idempotentes |
 
 > Sólo aprueba fases en estado `awaiting_approval`, con política `required` u `optional`. La invariante de actor humano vive en el dominio, no sólo en Cobra.
+
+---
+
+### `sdd reject <id>`
+Registra el rechazo humano de una fase y la deja disponible para una nueva iteración de trabajo.
+
+```bash
+sdd reject feat-023 --phase prd --by matias
+sdd reject feat-023 --phase specification --by matias --comment "Faltan escenarios de error"
+```
+
+| Flag | Obligatorio | Default | Descripción |
+| :--- | :--- | :--- | :--- |
+| `--phase` / `-p` | ✅ | — | ID de la fase a rechazar |
+| `--by` / `-b` | ❌ | `human` | ID del revisor humano |
+| `--comment` / `-c` | ❌ | — | Motivo o feedback opcional |
+| `--operation-id` | ❌ | — | Clave estable para reintentos idempotentes |
+
+> Sólo rechaza fases en estado `awaiting_approval`, con política `required` u `optional`. No desbloquea dependencias. Una nueva iteración se inicia explícitamente con `sdd begin`.
 
 ---
 
@@ -466,17 +488,15 @@ El test de workflows no mantiene una lista duplicada: descubre los archivos inst
 
 ```mermaid
 graph LR
-    CLI["✅ CLI Fases 1-5\nImplementadas"]
+    CLI["✅ CLI + reject\nImplementados"]
     VALIDATE["🔴 sdd validate\nValidar manifest vs JSON Schema"]
     AGENT["🔴 Integración Agente\nOrquestador usa la CLI"]
-    REJECT["🟡 sdd reject\nRechazar fase con motivo"]
     ARCHIVE["🟡 sdd archive\nArchivar work item"]
     ENGRAM["🟢 Engram + CodeGraph\nMemoria semántica"]
 
     CLI --> VALIDATE
     CLI --> AGENT
     VALIDATE --> AGENT
-    AGENT --> REJECT
     AGENT --> ARCHIVE
     ARCHIVE --> ENGRAM
 ```
@@ -485,11 +505,10 @@ graph LR
 | :--- | :--- | :--- |
 | 🔴 Alta | **`sdd validate`** | Exponer una validación explícita bajo demanda; las operaciones actuales ya validan schemas y semántica al cargar/persistir |
 | 🔴 Alta | **Integración del agente orquestador** | Instruir al agente (via `AGENTS.md` o skill) para que invoque la CLI como autoridad de estado |
-| 🟡 Media | **`sdd reject`** | Rechazar una fase con motivo, bloqueando el flujo hasta nueva generación |
 | 🟡 Media | **`sdd archive <id>`** | Mover un work item completado de `active/` a `archive/YYYY-MM-DD-<id>/` |
 | 🟢 Baja | **Validación de Event Types** | Validar que el tipo en `record-event` respete el patrón del schema |
 | 🟢 Baja | **Engram + CodeGraph** | Integración con memoria semántica (fuera del scope de Fase 1) |
 
 ---
 
-*Motor SDD CLI v0.1 — Actualizado el 2026-08-18*
+*Motor SDD CLI v0.1 — Actualizado el 2026-08-19*

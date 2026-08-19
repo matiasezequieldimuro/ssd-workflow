@@ -87,4 +87,38 @@ func TestMutatingUseCasesAreIdempotentWithOperationID(t *testing.T) {
 		string(eventsAfterDeliveryReplay) != string(eventsAfterDeliver) {
 		t.Fatal("replayed delivery changed revision or events")
 	}
+
+	reject := usecases.NewRejectUseCase(
+		repository,
+		workflowRepository,
+		infra.NewSystemClock(),
+		infra.NewCryptoIDGenerator(),
+	)
+	rejectInput := usecases.RejectInput{
+		WorkItemID:  input.ID,
+		PhaseID:     "prd",
+		RejectedBy:  actor,
+		Comment:     "Needs revision",
+		OperationID: "run:reject:001",
+	}
+	rejected, err := reject.Execute(baseDir, rejectInput)
+	if err != nil {
+		t.Fatalf("first reject error = %v", err)
+	}
+	eventsAfterReject, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() reject events error = %v", err)
+	}
+	replayedRejection, err := reject.Execute(baseDir, rejectInput)
+	if err != nil {
+		t.Fatalf("replayed reject error = %v", err)
+	}
+	eventsAfterRejectReplay, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() replayed reject events error = %v", err)
+	}
+	if replayedRejection.Revision != rejected.Revision ||
+		string(eventsAfterRejectReplay) != string(eventsAfterReject) {
+		t.Fatal("replayed rejection changed revision or events")
+	}
 }

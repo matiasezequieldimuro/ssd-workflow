@@ -76,7 +76,6 @@ La documentación ya identifica como pendientes:
 
 - `sdd validate`;
 - integración con el agente orquestador;
-- `sdd reject`;
 - `sdd archive`;
 - validación de event types;
 - capacidades posteriores de memoria y observabilidad.
@@ -1126,6 +1125,8 @@ El objetivo es evitar construir nuevas operaciones sobre invariantes incompletas
 
 **Estado al 2026-08-18:** completada. El dominio concentra las transiciones mediante estados y políticas tipadas; `next` es una consulta pura; `begin`, `deliver` y `complete` son operaciones explícitas; `approve` exige `awaiting_approval` y actor humano; el rechazo está modelado en dominio pero permanece sin comando público, respetando la congelación de la Fase 0.
 
+**Actualización al 2026-08-19:** CLI-05 quedó cerrado mediante `sdd reject`. El comando exige una decisión humana, registra `approval.recorded` y `phase.transitioned`, preserva el historial de iteraciones y admite reintentos idempotentes sin desbloquear dependencias.
+
 ### Fase 2 — Seguridad y validación
 
 1. Validar IDs y paths.
@@ -1203,13 +1204,14 @@ El objetivo es evitar construir nuevas operaciones sobre invariantes incompletas
 Con el núcleo estabilizado:
 
 1. implementar `sdd validate`;
-2. implementar `sdd reject`;
-3. implementar `sdd archive`;
-4. integrar el agente orquestador;
-5. realizar pruebas reales del harness;
-6. evaluar observabilidad, Engram y CodeGraph.
+2. implementar `sdd archive`;
+3. integrar el agente orquestador;
+4. realizar pruebas reales del harness;
+5. evaluar observabilidad, Engram y CodeGraph.
 
 **Hallazgo cerrado al completar la fase:** CLI-05, al exponer el rechazo pendiente y completar la superficie pública del lifecycle.
+
+**Estado al 2026-08-19:** `sdd reject` implementado; el resto de la fase permanece pendiente.
 
 ## 12. Decisión recomendada
 

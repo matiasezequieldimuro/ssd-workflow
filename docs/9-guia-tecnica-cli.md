@@ -95,7 +95,7 @@ La CLI no:
 - reemplaza Git como fuente de verdad;
 - mantiene una base de datos oculta;
 - archiva fisicamente work items todavia;
-- expone todavia comandos `reject` o `validate`.
+- todavia no expone el comando `validate`.
 
 Los campos `procedure` y `effects` del workflow describen que debe hacerse, pero el motor no ejecuta esas herramientas. Esa responsabilidad pertenece al agente o adaptador.
 
@@ -590,6 +590,7 @@ Implementa:
 | `sdd begin` | Transicion | Inicia una fase habilitada | Si | Si |
 | `sdd deliver` | Transicion | Entrega el resultado de una fase | Si | Si |
 | `sdd approve` | Gate humano | Aprueba una fase | Si | Si |
+| `sdd reject` | Gate humano | Rechaza una fase para retrabajo | Si | Si |
 | `sdd complete` | Transicion | Completa una fase o work item | Si | Si |
 | `sdd record-event` | Observabilidad | Agrega un evento custom | Si | Si |
 
@@ -765,7 +766,33 @@ Reglas:
 
 La exigencia de actor humano vive en dominio, no solamente en Cobra.
 
-### 12.10. `sdd complete <id>`
+### 12.10. `sdd reject <id>`
+
+```bash
+sdd reject feat-add-coupons \
+  --phase plan \
+  --by matias \
+  --comment "Falta detallar el rollback"
+```
+
+Reglas:
+
+- la fase debe estar `awaiting_approval`;
+- la politica no puede ser `none`;
+- el actor debe ser humano;
+- se resuelve el approval pendiente como `rejected`;
+- la fase pasa a `rejected`;
+- no se desbloquean dependencias.
+
+El retrabajo comienza explícitamente con:
+
+```bash
+sdd begin feat-add-coupons --phase plan
+```
+
+La nueva entrega crea otra iteracion de approval sin borrar el rechazo anterior.
+
+### 12.11. `sdd complete <id>`
 
 Completar fase:
 
@@ -795,7 +822,7 @@ Los estados `approved` y `accepted` ya satisfacen dependencias y el cierre del w
 
 Una fase opcional como `archive` puede ejecutarse despues de completar el work item, pero el comando actual no mueve el directorio a `work-items/archive/`.
 
-### 12.11. `sdd record-event <id>`
+### 12.12. `sdd record-event <id>`
 
 ```bash
 sdd record-event feat-add-coupons \
@@ -812,16 +839,7 @@ Agrega un evento custom sin alterar fases. Aun asi:
 - valida actor y schema;
 - puede ser idempotente mediante `--operation-id`.
 
-### 12.12. Funcionalidades modeladas pero no expuestas
-
-El dominio implementa:
-
-```text
-awaiting_approval -> rejected
-rejected -> in_progress
-```
-
-Sin embargo, todavia no existe `sdd reject`.
+### 12.13. Funcionalidades modeladas pero no expuestas
 
 Tambien existen estados `archived` y `cancelled`, pero no hay comandos publicos que los apliquen.
 
@@ -887,7 +905,7 @@ stateDiagram-v2
     in_progress --> completed: deliver / sin gate
 
     awaiting_approval --> approved: approve humano
-    awaiting_approval --> rejected: reject humano (dominio)
+    awaiting_approval --> rejected: reject humano
 
     approved --> completed: complete phase
     accepted --> completed: complete phase
@@ -1138,13 +1156,19 @@ sequenceDiagram
 
 ## 19. Recorrido de codigo: ciclo de una fase
 
-El ciclo completo disponible usa cuatro comandos:
+El ciclo normal usa cuatro comandos:
 
 ```text
 begin -> deliver -> approve -> complete
 ```
 
 `approve` se omite para una fase sin gate. `complete phase` es una normalizacion explicita de `approved` o `accepted` a `completed`; no es necesaria para desbloquear dependencias ni para completar el work item.
+
+Si el humano rechaza la entrega, la fase vuelve al circuito de trabajo:
+
+```text
+deliver -> reject -> begin -> deliver -> approve | reject
+```
 
 ```mermaid
 sequenceDiagram
@@ -1167,11 +1191,24 @@ sequenceDiagram
     WI-->>UC: in_progress -> awaiting_approval
     UC->>Repo: commit + approval.requested
 
-    Human->>CLI: approve --phase plan
-    CLI->>UC: Approve
-    UC->>WI: ApprovePhase()
-    WI-->>UC: awaiting_approval -> approved + unlock
-    UC->>Repo: commit + approval.recorded + artifacts ready
+    alt Aprobacion
+        Human->>CLI: approve --phase plan
+        CLI->>UC: Approve
+        UC->>WI: ApprovePhase()
+        WI-->>UC: awaiting_approval -> approved + unlock
+        UC->>Repo: commit + approval.recorded + artifacts ready
+    else Rechazo y retrabajo
+        Human->>CLI: reject --phase plan
+        CLI->>UC: Reject
+        UC->>WI: RejectPhase()
+        WI-->>UC: awaiting_approval -> rejected
+        UC->>Repo: commit + approval.recorded
+        Agent->>CLI: begin --phase plan
+        CLI->>UC: BeginPhase
+        UC->>WI: BeginPhase()
+        WI-->>UC: rejected -> in_progress
+        UC->>Repo: commit + transition event
+    end
 
     opt Normalizacion explicita
     Agent->>CLI: complete --phase plan
@@ -1382,7 +1419,7 @@ Cada linea de `events.jsonl` es un JSON independiente.
 | `phase.bypassed_by_external_input` | Inicio desde artifact externo |
 | `phase.transitioned` | Toda transicion principal o derivada |
 | `approval.requested` | Entrega que necesita gate |
-| `approval.recorded` | Aprobacion humana |
+| `approval.recorded` | Aprobacion o rechazo humano |
 | `work_item.completed` | Cierre logico del item |
 | Tipo custom | `record-event` |
 
@@ -1800,7 +1837,7 @@ Manifest, artifacts y eventos no son stores independientes desde la perspectiva 
 
 ### 33.5. Consultas puras
 
-`status` y `next` no mutan estado. La accion explicita se realiza con `begin`, `deliver`, `approve` o `complete`.
+`status` y `next` no mutan estado. La accion explicita se realiza con `begin`, `deliver`, `approve`, `reject` o `complete`.
 
 ### 33.6. Contrato local
 
@@ -1822,7 +1859,6 @@ Luego de `init`, el proyecto controla sus workflows y templates locales. El bina
 
 | Capacidad | Estado |
 | --- | --- |
-| `sdd reject` | Regla de dominio existente, comando ausente |
 | `sdd archive` | Fase declarativa existente, movimiento fisico ausente |
 | Consolidacion de specs baseline | Procedimiento futuro |
 | Autorizacion de efectos externos | Fuera del motor actual |

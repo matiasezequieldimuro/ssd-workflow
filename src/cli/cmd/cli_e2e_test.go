@@ -71,6 +71,27 @@ func TestCLICompletesFastChangeLifecycle(t *testing.T) {
 	}
 
 	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "deliver", "cli-contract", "--phase", "plan", "--operation-id", "cli:deliver:plan")
+	rejected := runJSONBinary(
+		t,
+		binary,
+		0,
+		"--json", "--dir", projectDir,
+		"reject", "cli-contract",
+		"--phase", "plan",
+		"--by", "contract-test",
+		"--comment", "Adjust the plan",
+		"--operation-id", "cli:reject:plan",
+	)
+	rejectedPhases, ok := responseData(t, rejected)["phases"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("rejected phases = %#v", responseData(t, rejected)["phases"])
+	}
+	rejectedPlan, ok := rejectedPhases["plan"].(map[string]interface{})
+	if !ok || rejectedPlan["status"] != "rejected" {
+		t.Fatalf("rejected plan = %#v", rejectedPhases["plan"])
+	}
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "begin", "cli-contract", "--phase", "plan", "--operation-id", "cli:begin:plan:rework")
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "deliver", "cli-contract", "--phase", "plan", "--operation-id", "cli:deliver:plan:rework")
 	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "approve", "cli-contract", "--phase", "plan", "--by", "contract-test", "--operation-id", "cli:approve:plan")
 	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "begin", "cli-contract", "--phase", "implementation", "--operation-id", "cli:begin:implementation")
 	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "deliver", "cli-contract", "--phase", "implementation", "--operation-id", "cli:deliver:implementation")

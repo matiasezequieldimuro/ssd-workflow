@@ -294,14 +294,15 @@ func TestStatusUseCaseOrdersPhasesByWorkflowGraph(t *testing.T) {
 }
 
 type memoryWorkItemRepository struct {
-	item         *domain.WorkItem
-	events       []domain.Event
-	artifacts    []ports.ArtifactWrite
-	commits      int
-	getErr       error
-	existsErr    error
-	operationErr error
-	commitErr    error
+	item             *domain.WorkItem
+	events           []domain.Event
+	artifacts        []ports.ArtifactWrite
+	commits          int
+	getErr           error
+	existsErr        error
+	operationErr     error
+	operationApplied bool
+	commitErr        error
 }
 
 func (repository *memoryWorkItemRepository) GetWorkItem(_ string, _ string) (*domain.WorkItem, error) {
@@ -325,7 +326,7 @@ func (repository *memoryWorkItemRepository) OperationApplied(_ string, _ string,
 	if repository.operationErr != nil {
 		return false, repository.operationErr
 	}
-	return false, nil
+	return repository.operationApplied, nil
 }
 
 func (repository *memoryWorkItemRepository) CommitWorkItem(_ string, commit ports.WorkItemCommit) error {

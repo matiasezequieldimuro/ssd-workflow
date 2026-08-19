@@ -275,6 +275,120 @@ func TestFullWorkItemLifecycle(t *testing.T) {
 	}
 }
 
+func TestRejectedPhaseCanBeReworkedAndApproved(t *testing.T) {
+	tmpDir := setupTestEnv(t)
+	defer os.RemoveAll(tmpDir)
+
+	repository := infra.NewFSWorkItemRepository()
+	workflows := infra.NewFSWorkflowRepository()
+	artifacts := infra.NewArtifactManager()
+	clock := infra.NewSystemClock()
+	ids := infra.NewCryptoIDGenerator()
+	actor := domain.Actor{Kind: domain.ActorHuman, ID: "matias"}
+
+	item, err := usecases.NewStartWorkItemUseCase(
+		repository,
+		workflows,
+		infra.NewFSConfigRepository(),
+		artifacts,
+		clock,
+		ids,
+	).Execute(tmpDir, usecases.StartWorkItemInput{
+		ID:          "reworked-plan",
+		WorkflowID:  "fast-change",
+		Title:       "Rework rejected plan",
+		Actor:       actor,
+		OperationID: "rework:start",
+	})
+	if err != nil {
+		t.Fatalf("StartWorkItemUseCase.Execute() error = %v", err)
+	}
+
+	deliver := usecases.NewDeliverPhaseUseCase(repository, workflows, artifacts, clock, ids)
+	item, err = deliver.Execute(tmpDir, usecases.DeliverPhaseInput{
+		WorkItemID:  item.ID,
+		PhaseID:     "plan",
+		Actor:       actor,
+		OperationID: "rework:deliver:first",
+	})
+	if err != nil {
+		t.Fatalf("DeliverPhaseUseCase.Execute() first error = %v", err)
+	}
+
+	reject := usecases.NewRejectUseCase(repository, workflows, clock, ids)
+	item, err = reject.Execute(tmpDir, usecases.RejectInput{
+		WorkItemID:  item.ID,
+		PhaseID:     "plan",
+		RejectedBy:  actor,
+		Comment:     "Add rollback details",
+		OperationID: "rework:reject",
+	})
+	if err != nil {
+		t.Fatalf("RejectUseCase.Execute() error = %v", err)
+	}
+	if item.Phases["plan"].Status != domain.PhaseRejected {
+		t.Fatalf("plan status = %s, want %s", item.Phases["plan"].Status, domain.PhaseRejected)
+	}
+	if item.Phases["implementation"].Status != domain.PhaseBlocked {
+		t.Fatalf(
+			"implementation status = %s, want %s",
+			item.Phases["implementation"].Status,
+			domain.PhaseBlocked,
+		)
+	}
+
+	begin := usecases.NewBeginPhaseUseCase(repository, workflows, clock, ids)
+	item, err = begin.Execute(tmpDir, usecases.BeginPhaseInput{
+		WorkItemID:  item.ID,
+		PhaseID:     "plan",
+		Actor:       actor,
+		OperationID: "rework:begin",
+	})
+	if err != nil {
+		t.Fatalf("BeginPhaseUseCase.Execute() error = %v", err)
+	}
+	item, err = deliver.Execute(tmpDir, usecases.DeliverPhaseInput{
+		WorkItemID:  item.ID,
+		PhaseID:     "plan",
+		Actor:       actor,
+		OperationID: "rework:deliver:second",
+	})
+	if err != nil {
+		t.Fatalf("DeliverPhaseUseCase.Execute() second error = %v", err)
+	}
+	if len(item.Approvals) != 2 ||
+		item.Approvals[0].Status != domain.ApprovalRejected ||
+		item.Approvals[1].Status != domain.ApprovalPending {
+		t.Fatalf("approval history after redelivery = %#v", item.Approvals)
+	}
+
+	item, err = usecases.NewApproveUseCase(
+		repository,
+		workflows,
+		artifacts,
+		clock,
+		ids,
+	).Execute(tmpDir, usecases.ApproveInput{
+		WorkItemID:  item.ID,
+		PhaseID:     "plan",
+		ApprovedBy:  actor,
+		Comment:     "Rollback is clear",
+		OperationID: "rework:approve",
+	})
+	if err != nil {
+		t.Fatalf("ApproveUseCase.Execute() error = %v", err)
+	}
+	if item.Phases["plan"].Status != domain.PhaseApproved ||
+		item.Phases["implementation"].Status != domain.PhaseReady {
+		t.Fatalf("phases after approval = %#v", item.Phases)
+	}
+	if len(item.Approvals) != 2 ||
+		item.Approvals[0].Status != domain.ApprovalRejected ||
+		item.Approvals[1].Status != domain.ApprovalApproved {
+		t.Fatalf("final approval history = %#v", item.Approvals)
+	}
+}
+
 func TestBypassModeStart(t *testing.T) {
 	tmpDir := setupTestEnv(t)
 	defer os.RemoveAll(tmpDir)

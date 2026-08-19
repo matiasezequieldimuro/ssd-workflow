@@ -48,6 +48,7 @@ func NewRootCommand(application Application) *cobra.Command {
 		newBeginCommand(application.Begin, options),
 		newDeliverCommand(application.Deliver, options),
 		newApproveCommand(application.Approve, options),
+		newRejectCommand(application.Reject, options),
 		newCompleteCommand(application.Complete, options),
 		newRecordEventCommand(application.RecordEvent, options),
 	)

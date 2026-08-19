@@ -446,7 +446,7 @@ Estas reglas definen el comportamiento, aunque la CLI se implemente después:
 
 1. Crear las carpetas vacías, `config.yaml`, cinco workflows y sus plantillas mínimas.
 2. Publicar los cuatro JSON Schemas y tests de fixtures válidos/inválidos; esto fija el contrato antes de escribir la CLI.
-3. Implementar una CLI mínima: `init`, `start`, `status --json`, `next --json`, `begin`, `deliver`, `approve`, `complete`, `validate` y `record-event`.
+3. Implementar una CLI mínima: `init`, `start`, `status --json`, `next --json`, `begin`, `deliver`, `approve`, `reject`, `complete`, `validate` y `record-event`.
 4. Ejercitar manualmente cada workflow con work items de ejemplo, incluidos rechazo, input externo y un intento inválido de implementar sin plan aprobado.
 5. Recién entonces crear el adaptador inicial y sus capacidades; posteriormente, memoria semántica, CodeGraph, métricas avanzadas y automatización de archive.
 

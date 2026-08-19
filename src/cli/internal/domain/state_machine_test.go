@@ -139,6 +139,122 @@ func TestApprovePhaseRequiresHumanAndPendingApproval(t *testing.T) {
 	})
 }
 
+func TestRejectPhaseRequiresHumanAndPendingApproval(t *testing.T) {
+	workflow := workflowWithPhase("phase", domain.ApprovalRequired, false)
+
+	t.Run("agent cannot reject", func(t *testing.T) {
+		item := workItemWithPhase("phase", domain.PhaseAwaitingApproval)
+		item.Approvals = []domain.Approval{{Phase: "phase", Status: domain.ApprovalPending}}
+
+		_, err := item.RejectPhase(
+			workflow,
+			"phase",
+			domain.Actor{Kind: domain.ActorAgent, ID: "copilot"},
+			"2026-08-19T22:00:00Z",
+			"needs changes",
+		)
+		if !errors.Is(err, domain.ErrHumanActorRequired) {
+			t.Fatalf("RejectPhase() error = %v, want %v", err, domain.ErrHumanActorRequired)
+		}
+		if got := item.Phases["phase"].Status; got != domain.PhaseAwaitingApproval {
+			t.Fatalf("phase status = %s, want %s", got, domain.PhaseAwaitingApproval)
+		}
+		if got := item.Approvals[0].Status; got != domain.ApprovalPending {
+			t.Fatalf("approval status = %s, want %s", got, domain.ApprovalPending)
+		}
+	})
+
+	t.Run("in progress cannot be rejected", func(t *testing.T) {
+		item := workItemWithPhase("phase", domain.PhaseInProgress)
+		_, err := item.RejectPhase(
+			workflow,
+			"phase",
+			domain.Actor{Kind: domain.ActorHuman, ID: "matias"},
+			"2026-08-19T22:00:00Z",
+			"",
+		)
+		if !errors.Is(err, domain.ErrPhaseNotAwaitingApproval) {
+			t.Fatalf("RejectPhase() error = %v, want %v", err, domain.ErrPhaseNotAwaitingApproval)
+		}
+	})
+
+	t.Run("phase without approval cannot be rejected", func(t *testing.T) {
+		item := workItemWithPhase("phase", domain.PhaseAwaitingApproval)
+		_, err := item.RejectPhase(
+			workflowWithPhase("phase", domain.ApprovalNone, false),
+			"phase",
+			domain.Actor{Kind: domain.ActorHuman, ID: "matias"},
+			"2026-08-19T22:00:00Z",
+			"",
+		)
+		if !errors.Is(err, domain.ErrApprovalNotAllowed) {
+			t.Fatalf("RejectPhase() error = %v, want %v", err, domain.ErrApprovalNotAllowed)
+		}
+	})
+}
+
+func TestRejectPhaseRecordsDecision(t *testing.T) {
+	workflow := workflowWithPhase("plan", domain.ApprovalRequired, false)
+	item := workItemWithPhase("plan", domain.PhaseAwaitingApproval)
+	item.Approvals = []domain.Approval{{Phase: "plan", Status: domain.ApprovalPending}}
+	actor := domain.Actor{Kind: domain.ActorHuman, ID: "matias"}
+
+	mutation, err := item.RejectPhase(
+		workflow,
+		"plan",
+		actor,
+		"2026-08-19T22:00:00Z",
+		"Adjust rollback steps",
+	)
+	if err != nil {
+		t.Fatalf("RejectPhase() error = %v", err)
+	}
+	if mutation.Transition.Phase != "plan" ||
+		mutation.Transition.From != domain.PhaseAwaitingApproval ||
+		mutation.Transition.To != domain.PhaseRejected {
+		t.Fatalf("transition = %#v", mutation.Transition)
+	}
+	if len(mutation.Unblocked) != 0 {
+		t.Fatalf("unblocked transitions = %#v, want none", mutation.Unblocked)
+	}
+	if got := item.Phases["plan"].Status; got != domain.PhaseRejected {
+		t.Fatalf("phase status = %s, want %s", got, domain.PhaseRejected)
+	}
+	approval := item.Approvals[0]
+	if approval.Status != domain.ApprovalRejected ||
+		approval.By == nil ||
+		*approval.By != actor ||
+		approval.At != "2026-08-19T22:00:00Z" ||
+		approval.Comment != "Adjust rollback steps" {
+		t.Fatalf("approval = %#v", approval)
+	}
+}
+
+func TestRejectedPhasePreservesApprovalHistoryAcrossRework(t *testing.T) {
+	workflow := workflowWithPhase("plan", domain.ApprovalRequired, false)
+	item := workItemWithPhase("plan", domain.PhaseAwaitingApproval)
+	item.Approvals = []domain.Approval{{Phase: "plan", Status: domain.ApprovalPending}}
+	actor := domain.Actor{Kind: domain.ActorHuman, ID: "matias"}
+
+	if _, err := item.RejectPhase(workflow, "plan", actor, "2026-08-19T22:00:00Z", "Revise"); err != nil {
+		t.Fatalf("RejectPhase() error = %v", err)
+	}
+	if _, err := item.BeginPhase(workflow, "plan"); err != nil {
+		t.Fatalf("BeginPhase() error = %v", err)
+	}
+	if _, err := item.DeliverPhase(workflow, "plan", false); err != nil {
+		t.Fatalf("DeliverPhase() error = %v", err)
+	}
+
+	if len(item.Approvals) != 2 {
+		t.Fatalf("approvals = %#v, want two iterations", item.Approvals)
+	}
+	if item.Approvals[0].Status != domain.ApprovalRejected ||
+		item.Approvals[1].Status != domain.ApprovalPending {
+		t.Fatalf("approval history = %#v", item.Approvals)
+	}
+}
+
 func TestAcceptExternalPhaseRequiresConfiguredReview(t *testing.T) {
 	workflow := workflowWithPhase("phase", domain.ApprovalRequired, false)
 	item := workItemWithPhase("phase", domain.PhaseBlocked)

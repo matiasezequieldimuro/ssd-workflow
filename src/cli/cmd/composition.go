@@ -13,6 +13,7 @@ type Application struct {
 	Begin       *usecases.BeginPhaseUseCase
 	Deliver     *usecases.DeliverPhaseUseCase
 	Approve     *usecases.ApproveUseCase
+	Reject      *usecases.RejectUseCase
 	Complete    *usecases.CompleteUseCase
 	RecordEvent *usecases.RecordEventUseCase
 }
@@ -56,6 +57,12 @@ func NewProductionApplication() Application {
 			workItems,
 			workflows,
 			artifacts,
+			clock,
+			ids,
+		),
+		Reject: usecases.NewRejectUseCase(
+			workItems,
+			workflows,
 			clock,
 			ids,
 		),
