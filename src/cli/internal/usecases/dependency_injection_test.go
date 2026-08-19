@@ -1,6 +1,7 @@
 package usecases_test
 
 import (
+	"errors"
 	"io/fs"
 	"strconv"
 	"testing"
@@ -115,6 +116,155 @@ func TestExternalStartKeepsLogicalEventOrderWithFixedClock(t *testing.T) {
 	}
 }
 
+func TestStartUseCasePropagatesAdapterFailures(t *testing.T) {
+	adapterErr := errors.New("adapter failure")
+	defaultInput := usecases.StartWorkItemInput{
+		ID:    "adapter-failure",
+		Title: "Adapter failure",
+		Actor: domain.Actor{Kind: domain.ActorHuman, ID: "matias"},
+	}
+	tests := []struct {
+		name      string
+		configure func(
+			*memoryWorkItemRepository,
+			*staticWorkflowRepository,
+			*staticConfigRepository,
+			*memoryArtifactService,
+			*sequenceIDGenerator,
+			*usecases.StartWorkItemInput,
+		)
+	}{
+		{
+			name: "work item existence check",
+			configure: func(repository *memoryWorkItemRepository, _ *staticWorkflowRepository, _ *staticConfigRepository, _ *memoryArtifactService, _ *sequenceIDGenerator, _ *usecases.StartWorkItemInput) {
+				repository.existsErr = adapterErr
+			},
+		},
+		{
+			name: "default configuration",
+			configure: func(_ *memoryWorkItemRepository, _ *staticWorkflowRepository, config *staticConfigRepository, _ *memoryArtifactService, _ *sequenceIDGenerator, _ *usecases.StartWorkItemInput) {
+				config.err = adapterErr
+			},
+		},
+		{
+			name: "workflow loading",
+			configure: func(_ *memoryWorkItemRepository, workflow *staticWorkflowRepository, _ *staticConfigRepository, _ *memoryArtifactService, _ *sequenceIDGenerator, input *usecases.StartWorkItemInput) {
+				input.WorkflowID = "memory-workflow"
+				workflow.err = adapterErr
+			},
+		},
+		{
+			name: "artifact preparation",
+			configure: func(_ *memoryWorkItemRepository, _ *staticWorkflowRepository, _ *staticConfigRepository, artifacts *memoryArtifactService, _ *sequenceIDGenerator, _ *usecases.StartWorkItemInput) {
+				artifacts.prepareErr = adapterErr
+			},
+		},
+		{
+			name: "event id generation",
+			configure: func(_ *memoryWorkItemRepository, _ *staticWorkflowRepository, _ *staticConfigRepository, _ *memoryArtifactService, ids *sequenceIDGenerator, _ *usecases.StartWorkItemInput) {
+				ids.err = adapterErr
+			},
+		},
+		{
+			name: "work item commit",
+			configure: func(repository *memoryWorkItemRepository, _ *staticWorkflowRepository, _ *staticConfigRepository, _ *memoryArtifactService, _ *sequenceIDGenerator, _ *usecases.StartWorkItemInput) {
+				repository.commitErr = adapterErr
+			},
+		},
+		{
+			name: "external artifact resolution",
+			configure: func(_ *memoryWorkItemRepository, _ *staticWorkflowRepository, _ *staticConfigRepository, artifacts *memoryArtifactService, _ *sequenceIDGenerator, input *usecases.StartWorkItemInput) {
+				input.FromArtifact = "external.md"
+				input.Phase = "first"
+				artifacts.resolveErr = adapterErr
+			},
+		},
+		{
+			name: "external artifact import",
+			configure: func(_ *memoryWorkItemRepository, _ *staticWorkflowRepository, _ *staticConfigRepository, artifacts *memoryArtifactService, _ *sequenceIDGenerator, input *usecases.StartWorkItemInput) {
+				input.FromArtifact = "external.md"
+				input.Phase = "first"
+				artifacts.importErr = adapterErr
+			},
+		},
+		{
+			name: "idempotency lookup",
+			configure: func(repository *memoryWorkItemRepository, _ *staticWorkflowRepository, _ *staticConfigRepository, _ *memoryArtifactService, _ *sequenceIDGenerator, input *usecases.StartWorkItemInput) {
+				repository.item = &domain.WorkItem{ID: input.ID}
+				repository.operationErr = adapterErr
+				input.OperationID = "adapter:test"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			workflow := &staticWorkflowRepository{workflow: memoryWorkflow()}
+			repository := &memoryWorkItemRepository{}
+			config := &staticConfigRepository{workflowID: workflow.workflow.ID}
+			artifacts := &memoryArtifactService{}
+			ids := &sequenceIDGenerator{}
+			input := defaultInput
+			tt.configure(repository, workflow, config, artifacts, ids, &input)
+
+			item, err := usecases.NewStartWorkItemUseCase(
+				repository,
+				workflow,
+				config,
+				artifacts,
+				fixedClock{value: time.Date(2026, time.August, 18, 19, 0, 0, 0, time.UTC)},
+				ids,
+			).Execute("unused", input)
+			if !errors.Is(err, adapterErr) {
+				t.Fatalf("Execute() error = %v, want %v", err, adapterErr)
+			}
+			if item != nil {
+				t.Fatalf("Execute() item = %#v, want nil", item)
+			}
+			if repository.commits != 0 {
+				t.Fatalf("commits = %d, want 0", repository.commits)
+			}
+		})
+	}
+}
+
+func TestStatusUseCasePropagatesAdapterFailures(t *testing.T) {
+	adapterErr := errors.New("adapter failure")
+	workflow := memoryWorkflow()
+	item := &domain.WorkItem{
+		ID:       "query-failure",
+		Workflow: domain.WorkItemWorkflow{ID: workflow.ID},
+	}
+	tests := []struct {
+		name       string
+		repository *memoryWorkItemRepository
+		workflows  staticWorkflowRepository
+	}{
+		{
+			name:       "work item loading",
+			repository: &memoryWorkItemRepository{getErr: adapterErr},
+			workflows:  staticWorkflowRepository{workflow: workflow},
+		},
+		{
+			name:       "workflow loading",
+			repository: &memoryWorkItemRepository{item: item},
+			workflows:  staticWorkflowRepository{err: adapterErr},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := usecases.NewStatusUseCase(tt.repository, tt.workflows).Execute("unused", item.ID)
+			if !errors.Is(err, adapterErr) {
+				t.Fatalf("Execute() error = %v, want %v", err, adapterErr)
+			}
+			if result != nil {
+				t.Fatalf("Execute() result = %#v, want nil", result)
+			}
+		})
+	}
+}
+
 func TestStatusUseCaseOrdersPhasesByWorkflowGraph(t *testing.T) {
 	workflow := memoryWorkflow()
 	workflow.Phases = []domain.WorkflowPhase{
@@ -144,13 +294,20 @@ func TestStatusUseCaseOrdersPhasesByWorkflowGraph(t *testing.T) {
 }
 
 type memoryWorkItemRepository struct {
-	item      *domain.WorkItem
-	events    []domain.Event
-	artifacts []ports.ArtifactWrite
-	commits   int
+	item         *domain.WorkItem
+	events       []domain.Event
+	artifacts    []ports.ArtifactWrite
+	commits      int
+	getErr       error
+	existsErr    error
+	operationErr error
+	commitErr    error
 }
 
 func (repository *memoryWorkItemRepository) GetWorkItem(_ string, _ string) (*domain.WorkItem, error) {
+	if repository.getErr != nil {
+		return nil, repository.getErr
+	}
 	if repository.item == nil {
 		return nil, domain.ErrWorkItemNotFound
 	}
@@ -158,14 +315,23 @@ func (repository *memoryWorkItemRepository) GetWorkItem(_ string, _ string) (*do
 }
 
 func (repository *memoryWorkItemRepository) WorkItemExists(_ string, _ string) (bool, error) {
+	if repository.existsErr != nil {
+		return false, repository.existsErr
+	}
 	return repository.item != nil, nil
 }
 
 func (repository *memoryWorkItemRepository) OperationApplied(_ string, _ string, _ string) (bool, error) {
+	if repository.operationErr != nil {
+		return false, repository.operationErr
+	}
 	return false, nil
 }
 
 func (repository *memoryWorkItemRepository) CommitWorkItem(_ string, commit ports.WorkItemCommit) error {
+	if repository.commitErr != nil {
+		return repository.commitErr
+	}
 	repository.item = commit.Item
 	repository.events = append(repository.events, commit.Events...)
 	repository.artifacts = append(repository.artifacts, commit.Artifacts...)
@@ -175,17 +341,25 @@ func (repository *memoryWorkItemRepository) CommitWorkItem(_ string, commit port
 
 type staticWorkflowRepository struct {
 	workflow *domain.Workflow
+	err      error
 }
 
 func (repository staticWorkflowRepository) GetWorkflow(_ string, _ string) (*domain.Workflow, error) {
+	if repository.err != nil {
+		return nil, repository.err
+	}
 	return repository.workflow, nil
 }
 
 type staticConfigRepository struct {
 	workflowID string
+	err        error
 }
 
 func (repository staticConfigRepository) GetConfig(_ string) (*domain.Config, error) {
+	if repository.err != nil {
+		return nil, repository.err
+	}
 	return &domain.Config{
 		SchemaVersion: "0.1",
 		Defaults: domain.ConfigDefaults{
@@ -195,8 +369,11 @@ func (repository staticConfigRepository) GetConfig(_ string) (*domain.Config, er
 }
 
 type memoryArtifactService struct {
-	prepared int
-	resolved ports.ExternalArtifact
+	prepared   int
+	resolved   ports.ExternalArtifact
+	prepareErr error
+	resolveErr error
+	importErr  error
 }
 
 func (service *memoryArtifactService) PrepareArtifactsForPhase(
@@ -207,6 +384,9 @@ func (service *memoryArtifactService) PrepareArtifactsForPhase(
 	_ map[string]string,
 ) ([]ports.ArtifactWrite, error) {
 	service.prepared++
+	if service.prepareErr != nil {
+		return nil, service.prepareErr
+	}
 	return []ports.ArtifactWrite{{
 		Path:    "artifacts/first.md",
 		Content: []byte("artifact"),
@@ -215,6 +395,9 @@ func (service *memoryArtifactService) PrepareArtifactsForPhase(
 }
 
 func (service *memoryArtifactService) ResolveExternalArtifact(_ string) (ports.ExternalArtifact, error) {
+	if service.resolveErr != nil {
+		return ports.ExternalArtifact{}, service.resolveErr
+	}
 	return service.resolved, nil
 }
 
@@ -225,6 +408,9 @@ func (service *memoryArtifactService) ImportExternalArtifact(
 	_ ports.ExternalArtifact,
 	writes []ports.ArtifactWrite,
 ) ([]ports.ArtifactWrite, error) {
+	if service.importErr != nil {
+		return nil, service.importErr
+	}
 	return writes, nil
 }
 
@@ -238,9 +424,13 @@ func (clock fixedClock) Now() time.Time {
 
 type sequenceIDGenerator struct {
 	next int
+	err  error
 }
 
 func (generator *sequenceIDGenerator) NewID() (string, error) {
+	if generator.err != nil {
+		return "", generator.err
+	}
 	generator.next++
 	return "evt-sequence-" + strconv.Itoa(generator.next), nil
 }

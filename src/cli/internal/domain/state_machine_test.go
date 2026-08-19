@@ -41,6 +41,84 @@ func TestDeliverPhaseAppliesApprovalPolicy(t *testing.T) {
 	}
 }
 
+func TestBeginPhaseTransitionMatrix(t *testing.T) {
+	tests := []struct {
+		status  domain.PhaseStatus
+		wantErr bool
+	}{
+		{status: domain.PhaseReady},
+		{status: domain.PhaseRejected},
+		{status: domain.PhaseSuperseded},
+		{status: domain.PhaseBlocked, wantErr: true},
+		{status: domain.PhaseInProgress, wantErr: true},
+		{status: domain.PhaseAwaitingApproval, wantErr: true},
+		{status: domain.PhaseApproved, wantErr: true},
+		{status: domain.PhaseCompleted, wantErr: true},
+		{status: domain.PhaseAccepted, wantErr: true},
+		{status: domain.PhaseNotApplicable, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			workflow := workflowWithPhase("phase", domain.ApprovalNone, false)
+			item := workItemWithPhase("phase", tt.status)
+
+			_, err := item.BeginPhase(workflow, "phase")
+			if tt.wantErr {
+				if !errors.Is(err, domain.ErrInvalidTransition) {
+					t.Fatalf("BeginPhase() error = %v, want %v", err, domain.ErrInvalidTransition)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("BeginPhase() error = %v", err)
+			}
+			if got := item.Phases["phase"].Status; got != domain.PhaseInProgress {
+				t.Fatalf("BeginPhase() status = %s, want %s", got, domain.PhaseInProgress)
+			}
+		})
+	}
+}
+
+func TestCompletePhaseTransitionMatrix(t *testing.T) {
+	tests := []struct {
+		status  domain.PhaseStatus
+		wantErr bool
+	}{
+		{status: domain.PhaseApproved},
+		{status: domain.PhaseAccepted},
+		{status: domain.PhaseBlocked, wantErr: true},
+		{status: domain.PhaseReady, wantErr: true},
+		{status: domain.PhaseInProgress, wantErr: true},
+		{status: domain.PhaseAwaitingApproval, wantErr: true},
+		{status: domain.PhaseCompleted, wantErr: true},
+		{status: domain.PhaseRejected, wantErr: true},
+		{status: domain.PhaseSuperseded, wantErr: true},
+		{status: domain.PhaseNotApplicable, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.status), func(t *testing.T) {
+			workflow := workflowWithPhase("phase", domain.ApprovalRequired, false)
+			item := workItemWithPhase("phase", tt.status)
+
+			_, err := item.CompletePhase(workflow, "phase")
+			if tt.wantErr {
+				if !errors.Is(err, domain.ErrInvalidTransition) {
+					t.Fatalf("CompletePhase() error = %v, want %v", err, domain.ErrInvalidTransition)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("CompletePhase() error = %v", err)
+			}
+			if got := item.Phases["phase"].Status; got != domain.PhaseCompleted {
+				t.Fatalf("CompletePhase() status = %s, want %s", got, domain.PhaseCompleted)
+			}
+		})
+	}
+}
+
 func TestApprovePhaseRequiresHumanAndPendingApproval(t *testing.T) {
 	workflow := workflowWithPhase("phase", domain.ApprovalRequired, false)
 

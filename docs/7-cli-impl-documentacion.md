@@ -97,13 +97,15 @@ cd /Users/matiasdimuro/Documents/Webdev/sdd-harness/src/cli
 
 Incluye:
 - `TestContractFixtures` — valida estructural y semánticamente los fixtures JSON del contrato
-- `TestFullWorkItemLifecycle` — ciclo obligatorio completo: init → start → deliver/approve → begin → implementación/verificación → code review → complete
+- `TestEveryWorkflowCompletesItsMandatoryLifecycle` — descubre todos los `*.workflow.yaml` y completa sus fases obligatorias con artifacts, eventos y manifest válidos
+- `TestCLICompletesFastChangeLifecycle` — compila el binario y recorre init → start → next/status → begin/deliver/approve → complete → record-event, validando stdout, stderr y exit codes
+- `TestFullWorkItemLifecycle` — ciclo de integración detallado del workflow `feature-standard`
 - `TestBypassModeStart` — inicio desde artefacto externo, incluyendo el gate requerido
 - `state_machine_test.go` — transiciones table-driven, gates humanos, rework y fases opcionales
 - `persistence_test.go` — rollback completo, locks, revisión optimista y recuperación tras interrupciones
 - `contract_integration_test.go` — defaults, templates locales, artefactos externos, seguridad de paths y validación contractual
 - `idempotency_test.go` — reintentos idempotentes mediante `operation_id`
-- `dependency_injection_test.go` — use cases ejecutados con repositorios, artifacts, reloj, IDs e inicializador en memoria
+- `dependency_injection_test.go` — use cases en memoria, tiempo/IDs deterministas y propagación table-driven de fallos de ports
 - `cmd/root_test.go` — errores de argumentos y flags requeridos dentro del envelope JSON
 
 ### B) Compilar el binario
@@ -444,11 +446,27 @@ Los tests se nombran por comportamiento:
 
 No se usan nombres asociados a fases del roadmap porque perderían significado cuando el backlog evolucione.
 
+### 4.6. Suite contractual
+
+La Fase 5 organiza la verificación por garantía y no por archivo de implementación:
+
+| Frontera | Propiedad demostrada |
+| :--- | :--- |
+| Dominio | Las matrices de `begin`, `deliver` y `complete` aceptan sólo estados contractuales; approvals, rework y fases opcionales mantienen sus invariantes |
+| Schemas y semántica | Todos los fixtures válidos deben pasar y todos los inválidos deben fallar; una carpeta vacía de fixtures también falla la suite |
+| Workflows | Ciclos, dependencias inexistentes, entry points y paths inválidos son rechazados |
+| Persistencia | Los fallos antes o durante publicación no dejan estado parcial; locks y revisiones obsoletas impiden escritores conflictivos |
+| Ports | Errores de repositorio, config, workflows, artifacts e IDs se propagan sin producir un commit exitoso |
+| Lifecycle | Cada archivo `*.workflow.yaml` inicializado se recorre hasta completar todas sus fases obligatorias y validar artifacts, manifest y eventos |
+| CLI | El binario compilado conserva consultas puras, orden de texto, envelopes JSON, canales stdout/stderr y exit codes |
+
+El test de workflows no mantiene una lista duplicada: descubre los archivos instalados en `.sdd/workflows/`. Agregar un workflow nuevo lo incorpora automáticamente al ciclo contractual. El test de CLI se ejecuta contra el composition root productivo y el filesystem real; los dobles quedan reservados para aislar fallos de ports y controlar reloj e IDs.
+
 ## 5. Próximos pasos
 
 ```mermaid
 graph LR
-    CLI["✅ CLI Fases 1-4\nImplementadas"]
+    CLI["✅ CLI Fases 1-5\nImplementadas"]
     VALIDATE["🔴 sdd validate\nValidar manifest vs JSON Schema"]
     AGENT["🔴 Integración Agente\nOrquestador usa la CLI"]
     REJECT["🟡 sdd reject\nRechazar fase con motivo"]

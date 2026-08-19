@@ -115,6 +115,9 @@ func fixtureFiles(t *testing.T, directory string) []string {
 			files = append(files, filepath.Join(directory, entry.Name()))
 		}
 	}
+	if len(files) == 0 {
+		t.Fatalf("no JSON fixtures found in %s", directory)
+	}
 	return files
 }
 

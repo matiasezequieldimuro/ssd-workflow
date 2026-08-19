@@ -813,6 +813,10 @@ Incorporar:
 
 Los tests deben demostrar las propiedades del motor, no sólo que el camino feliz produce un archivo.
 
+#### Estado posterior a la corrección
+
+La suite queda distribuida por garantía: matrices de estados, schemas y fixtures inválidos, grafos, containment, rollback, recuperación, concurrencia, idempotencia, eventos, ports fallidos, configuración y templates locales. Los lifecycles descubren y ejecutan todos los workflows instalados, y un test de caja negra compila el binario para comprobar stdout, stderr, exit codes, JSON y pureza de `next`.
+
 ### CLI-16 — Higiene de Go y repositorio
 
 #### Hallazgos
@@ -1189,6 +1193,10 @@ El objetivo es evitar construir nuevas operaciones sobre invariantes incompletas
 **Criterio de finalización:** cada regla no negociable del contrato tiene al menos un test que falla si se viola.
 
 **Hallazgo cerrado al completar la fase:** CLI-15.
+
+**Estado al 2026-08-18:** completada. Las transiciones principales tienen matrices table-driven; fixtures válidos e inválidos se validan contra schema y semántica; grafos, IDs, paths y symlinks cuentan con casos negativos; la persistencia prueba fallos antes y durante publicación, rollback, recuperación, locks y revisiones obsoletas; los eventos prueban schema, orden, correlación y unicidad; los dobles en memoria inyectan fallos de repositorio, config, workflows, artifacts e IDs; templates locales y defaults mantienen cobertura directa. `TestEveryWorkflowCompletesItsMandatoryLifecycle` descubre cada `*.workflow.yaml` instalado y completa su lifecycle obligatorio sobre infraestructura real. `TestCLICompletesFastChangeLifecycle` compila el binario y valida el contrato completo de comandos, JSON, stdout, stderr, exit codes y pureza de consultas. Se eliminó el test superficial que sólo deserializaba fixtures sin validarlos.
+
+**Documentación de implementación:** la sección 4.6 de `docs/7-cli-impl-documentacion.md` describe las fronteras de la suite y la propiedad contractual demostrada por cada grupo.
 
 ### Fase 6 — Continuar el roadmap
 
