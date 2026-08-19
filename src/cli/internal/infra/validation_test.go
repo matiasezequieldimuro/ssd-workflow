@@ -56,6 +56,72 @@ func TestContractFixtures(t *testing.T) {
 	})
 }
 
+func TestSchemaValidatorReturnsAllLeafViolations(t *testing.T) {
+	validator := NewSchemaValidator()
+	violations, err := validator.ValidateValueAll(
+		contractBaseDir(t),
+		"workflow.schema.json",
+		map[string]interface{}{
+			"schema_version": "9",
+			"kind":           "invalid",
+			"id":             "INVALID",
+			"title":          "",
+			"work_item_type": "",
+			"entry_points":   []interface{}{},
+			"phases":         []interface{}{},
+			"artifacts":      map[string]interface{}{},
+		},
+	)
+	if err != nil {
+		t.Fatalf("ValidateValueAll() error = %v", err)
+	}
+	if len(violations) < 2 {
+		t.Fatalf("violations = %#v", violations)
+	}
+	for index := 1; index < len(violations); index++ {
+		if violations[index-1].InstancePath > violations[index].InstancePath {
+			t.Fatalf("violations are not ordered: %#v", violations)
+		}
+	}
+	for _, schemaFile := range requiredSchemas {
+		if err := validator.Compile(contractBaseDir(t), schemaFile); err != nil {
+			t.Fatalf("Compile(%s) error = %v", schemaFile, err)
+		}
+	}
+}
+
+func TestValidationInspectorDoesNotRecoverTransactions(t *testing.T) {
+	baseDir := t.TempDir()
+	if err := NewFSProjectInitializer().Initialize(baseDir); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, ".sdd", "work-items", "active", ".gitkeep"), nil, 0644); err != nil {
+		t.Fatalf("WriteFile() .gitkeep error = %v", err)
+	}
+	backupPath := filepath.Join(baseDir, ".sdd", "work-items", ".transactions", "unrelated.backup")
+	if err := os.MkdirAll(backupPath, 0755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	markerPath := filepath.Join(backupPath, "marker")
+	if err := os.WriteFile(markerPath, []byte("preserve"), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	checks, err := NewFSValidationInspector().InspectProject(baseDir)
+	if err != nil {
+		t.Fatalf("InspectProject() error = %v", err)
+	}
+	for _, check := range checks {
+		if check.Status == domain.CheckFailed {
+			t.Fatalf("unexpected failed check = %#v", check)
+		}
+	}
+	data, err := os.ReadFile(markerPath)
+	if err != nil || string(data) != "preserve" {
+		t.Fatalf("transaction marker changed: data=%q err=%v", data, err)
+	}
+}
+
 func TestContainedPathRejectsTraversalAndSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	if _, err := containedPath(root, "..", "outside"); !errors.Is(err, domain.ErrInvalidPath) {

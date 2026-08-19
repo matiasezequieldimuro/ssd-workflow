@@ -1203,15 +1203,14 @@ El objetivo es evitar construir nuevas operaciones sobre invariantes incompletas
 
 Con el núcleo estabilizado:
 
-1. implementar `sdd validate`;
-2. implementar `sdd archive`;
-3. integrar el agente orquestador;
-4. realizar pruebas reales del harness;
-5. evaluar observabilidad, Engram y CodeGraph.
+1. implementar `sdd archive`;
+2. integrar el agente orquestador;
+3. realizar pruebas reales del harness;
+4. evaluar observabilidad, Engram y CodeGraph.
 
 **Hallazgo cerrado al completar la fase:** CLI-05, al exponer el rechazo pendiente y completar la superficie pública del lifecycle.
 
-**Estado al 2026-08-19:** `sdd reject` implementado; el resto de la fase permanece pendiente.
+**Estado al 2026-08-19:** `sdd reject` y `sdd validate` implementados. `validate` inspecciona el proyecto o un work item activo mediante un port read-only, acumula checks estructurales y semánticos, devuelve diagnósticos estables en texto/JSON y prueba que no modifica ni recupera snapshots. `sdd archive` y la integración del orquestador permanecen pendientes.
 
 ## 12. Decisión recomendada
 

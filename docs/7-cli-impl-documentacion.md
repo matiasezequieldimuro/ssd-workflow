@@ -178,7 +178,7 @@ Todos los comandos usan Cobra `RunE`: los errores se propagan hasta el root comm
 }
 ```
 
-Los códigos iniciales son `invalid_arguments`, `invalid_input`, `not_found`, `already_exists`, `invalid_transition`, `concurrent_modification`, `work_item_locked` e `internal_error`.
+Los códigos iniciales son `invalid_arguments`, `invalid_input`, `not_found`, `already_exists`, `invalid_transition`, `validation_failed`, `concurrent_modification`, `work_item_locked` e `internal_error`.
 
 ---
 
@@ -350,6 +350,30 @@ sdd next feat-023 --json
 
 ---
 
+### `sdd validate [id]`
+
+Ejecuta un diagnóstico acumulativo y read-only:
+
+```bash
+sdd validate
+sdd validate feat-023
+sdd validate feat-023 --json
+```
+
+Sin ID valida el contrato local y todos los work items activos. Con ID limita el
+scope al expediente indicado y a su workflow, templates, procedures, artifacts,
+eventos y referencias.
+
+El reporte distingue checks `passed`, `warning` y `failed`. Un resultado con
+errores devuelve exit code `1`, código `validation_failed` y conserva el reporte
+estructurado en `error.details`. Las advertencias no cambian el exit code.
+
+El comando no usa el repositorio mutante: lee el snapshot visible mediante
+`ValidationInspector`, no recupera transacciones, no crea eventos y no incrementa
+la revisión.
+
+---
+
 ### `sdd record-event <id>`
 Inyecta un evento personalizado de forma inmutable en `events.jsonl`.
 
@@ -389,6 +413,7 @@ El contrato de aplicación se divide por capacidad:
 | `ArtifactPreparer` | Renderizar y validar artifacts sin persistirlos | `start`, `deliver`, `approve`, `complete` |
 | `ExternalArtifactImporter` | Resolver, hashear e importar evidencia externa | `start` |
 | `ProjectInitializer` | Publicar `.sdd/` de forma atómica | `init` |
+| `ValidationInspector` | Inspeccionar contrato y expedientes sin mutarlos | `validate` |
 | `Clock` | Proveer timestamps controlables | Creación, approvals, artifacts y eventos |
 | `IDGenerator` | Generar IDs únicos de eventos | Todas las mutaciones |
 
@@ -481,6 +506,7 @@ La Fase 5 organiza la verificación por garantía y no por archivo de implementa
 | Ports | Errores de repositorio, config, workflows, artifacts e IDs se propagan sin producir un commit exitoso |
 | Lifecycle | Cada archivo `*.workflow.yaml` inicializado se recorre hasta completar todas sus fases obligatorias y validar artifacts, manifest y eventos |
 | CLI | El binario compilado conserva consultas puras, orden de texto, envelopes JSON, canales stdout/stderr y exit codes |
+| Diagnóstico | `validate` acumula errores independientes, conserva details JSON y no recupera ni modifica snapshots |
 
 El test de workflows no mantiene una lista duplicada: descubre los archivos instalados en `.sdd/workflows/`. Agregar un workflow nuevo lo incorpora automáticamente al ciclo contractual. El test de CLI se ejecuta contra el composition root productivo y el filesystem real; los dobles quedan reservados para aislar fallos de ports y controlar reloj e IDs.
 
@@ -488,22 +514,18 @@ El test de workflows no mantiene una lista duplicada: descubre los archivos inst
 
 ```mermaid
 graph LR
-    CLI["✅ CLI + reject\nImplementados"]
-    VALIDATE["🔴 sdd validate\nValidar manifest vs JSON Schema"]
+    CLI["✅ CLI + reject + validate\nImplementados"]
     AGENT["🔴 Integración Agente\nOrquestador usa la CLI"]
     ARCHIVE["🟡 sdd archive\nArchivar work item"]
     ENGRAM["🟢 Engram + CodeGraph\nMemoria semántica"]
 
-    CLI --> VALIDATE
     CLI --> AGENT
-    VALIDATE --> AGENT
     AGENT --> ARCHIVE
     ARCHIVE --> ENGRAM
 ```
 
 | Prioridad | Paso | Descripción |
 | :--- | :--- | :--- |
-| 🔴 Alta | **`sdd validate`** | Exponer una validación explícita bajo demanda; las operaciones actuales ya validan schemas y semántica al cargar/persistir |
 | 🔴 Alta | **Integración del agente orquestador** | Instruir al agente (via `AGENTS.md` o skill) para que invoque la CLI como autoridad de estado |
 | 🟡 Media | **`sdd archive <id>`** | Mover un work item completado de `active/` a `archive/YYYY-MM-DD-<id>/` |
 | 🟢 Baja | **Validación de Event Types** | Validar que el tipo en `record-event` respete el patrón del schema |

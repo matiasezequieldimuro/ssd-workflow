@@ -94,8 +94,7 @@ La CLI no:
 - reemplaza al orquestador;
 - reemplaza Git como fuente de verdad;
 - mantiene una base de datos oculta;
-- archiva fisicamente work items todavia;
-- todavia no expone el comando `validate`.
+- archiva fisicamente work items todavia.
 
 Los campos `procedure` y `effects` del workflow describen que debe hacerse, pero el motor no ejecuta esas herramientas. Esa responsabilidad pertenece al agente o adaptador.
 
@@ -587,6 +586,7 @@ Implementa:
 | `sdd start` | Creacion | Crea un work item | Si | Si |
 | `sdd status` | Consulta | Muestra manifest y fases | No | No |
 | `sdd next` | Consulta | Informa la proxima accion | No | No |
+| `sdd validate` | Diagnostico | Valida proyecto o work item activo | No | No |
 | `sdd begin` | Transicion | Inicia una fase habilitada | Si | Si |
 | `sdd deliver` | Transicion | Entrega el resultado de una fase | Si | Si |
 | `sdd approve` | Gate humano | Aprueba una fase | Si | Si |
@@ -709,7 +709,46 @@ Devuelve:
 
 `next` **no inicia la fase** y no aumenta la revision.
 
-### 12.7. `sdd begin <id>`
+### 12.7. `sdd validate [id]`
+
+```bash
+sdd validate
+sdd validate feat-add-coupons
+sdd validate feat-add-coupons --json
+```
+
+Scopes:
+
+| Invocacion | Alcance |
+| --- | --- |
+| Sin ID | Config, schemas, workflows, templates, procedures y work items activos |
+| Con ID | Manifest, workflow relacionado, approvals, artifacts, eventos y referencias |
+
+Cada check contiene:
+
+```text
+status | category | code | target | message
+```
+
+Estados:
+
+- `passed`: regla satisfecha;
+- `warning`: observacion no bloqueante;
+- `failed`: inconsistencia que invalida el reporte.
+
+Un resultado invalido usa exit code `1` y, en JSON, devuelve el reporte dentro de
+`error.details` con codigo `validation_failed`. Las advertencias no cambian el
+exit code.
+
+La implementacion usa `ValidationInspector`, no `FSWorkItemRepository`. Esto evita
+que la consulta active recuperacion transaccional. No crea locks, eventos ni
+revisiones.
+
+La fuente externa de un input puede no existir despues de clonar el proyecto en
+otra maquina: en ese caso se informa warning. Si existe, debe ser regular y
+conservar el SHA-256 registrado.
+
+### 12.8. `sdd begin <id>`
 
 ```bash
 sdd begin feat-add-coupons \
@@ -726,7 +765,7 @@ ready | rejected | superseded -> in_progress
 
 Una fase `blocked` no puede comenzar.
 
-### 12.8. `sdd deliver <id>`
+### 12.9. `sdd deliver <id>`
 
 ```bash
 sdd deliver feat-add-coupons \
@@ -746,7 +785,7 @@ El destino depende de la politica:
 
 Al satisfacerse dependencias, la CLI desbloquea fases y prepara sus templates dentro del mismo commit.
 
-### 12.9. `sdd approve <id>`
+### 12.10. `sdd approve <id>`
 
 ```bash
 sdd approve feat-add-coupons \
@@ -766,7 +805,7 @@ Reglas:
 
 La exigencia de actor humano vive en dominio, no solamente en Cobra.
 
-### 12.10. `sdd reject <id>`
+### 12.11. `sdd reject <id>`
 
 ```bash
 sdd reject feat-add-coupons \
@@ -792,7 +831,7 @@ sdd begin feat-add-coupons --phase plan
 
 La nueva entrega crea otra iteracion de approval sin borrar el rechazo anterior.
 
-### 12.11. `sdd complete <id>`
+### 12.12. `sdd complete <id>`
 
 Completar fase:
 
@@ -822,7 +861,7 @@ Los estados `approved` y `accepted` ya satisfacen dependencias y el cierre del w
 
 Una fase opcional como `archive` puede ejecutarse despues de completar el work item, pero el comando actual no mueve el directorio a `work-items/archive/`.
 
-### 12.12. `sdd record-event <id>`
+### 12.13. `sdd record-event <id>`
 
 ```bash
 sdd record-event feat-add-coupons \
@@ -839,7 +878,7 @@ Agrega un evento custom sin alterar fases. Aun asi:
 - valida actor y schema;
 - puede ser idempotente mediante `--operation-id`.
 
-### 12.13. Funcionalidades modeladas pero no expuestas
+### 12.14. Funcionalidades modeladas pero no expuestas
 
 Tambien existen estados `archived` y `cancelled`, pero no hay comandos publicos que los apliquen.
 
@@ -1493,6 +1532,28 @@ El schema no puede expresar todas las invariantes. `Workflow.ValidateSemantics` 
 - approvals compatibles;
 - completitud real de un item `completed`.
 
+### 25.3. Diagnostico explicito
+
+`sdd validate` reutiliza estas invariantes, pero no se detiene en el primer error.
+Los validadores de dominio exponen colecciones de violaciones y conservan sus
+wrappers fail-fast para las operaciones existentes.
+
+El inspector agrega checks sobre:
+
+- config consumida por la CLI;
+- compilacion de los cuatro schemas;
+- todos los workflows dentro del scope;
+- templates, placeholders y procedures;
+- manifests y approvals;
+- artifacts persistidos y su front matter;
+- lineas, IDs y continuidad basica de `events.jsonl`;
+- hashes externos disponibles;
+- baseline specs y related work item IDs.
+
+No compara todavía el `status` del front matter con el estado de fase: las
+transiciones actuales no sincronizan esa metadata. Tampoco valida expedientes
+archivados hasta implementar el movimiento fisico.
+
 ---
 
 ## 26. Seguridad de paths
@@ -1607,8 +1668,15 @@ Error:
 {
   "success": false,
   "error": {
-    "code": "invalid_transition",
-    "message": "invalid phase transition: ..."
+    "code": "validation_failed",
+    "message": "validation found 2 error(s)",
+    "details": {
+      "scope": "work_item",
+      "target": "feat-add-coupons",
+      "valid": false,
+      "summary": {"total": 20, "passed": 18, "warnings": 0, "failed": 2},
+      "checks": []
+    }
   }
 }
 ```
@@ -1622,6 +1690,7 @@ Error:
 | `not_found` | Work item, workflow o fase inexistente |
 | `already_exists` | Colision al crear |
 | `invalid_transition` | Operacion no permitida por el estado |
+| `validation_failed` | El diagnostico se ejecuto y encontro inconsistencias |
 | `concurrent_modification` | Revision obsoleta |
 | `work_item_locked` | Otro escritor posee el lock |
 | `internal_error` | Error no clasificado |
@@ -1694,6 +1763,7 @@ La suite esta organizada por propiedades contractuales, no solo por funciones.
 | Idempotencia | Reintentos no duplican operaciones |
 | Dependency injection | Fallos de ports se propagan sin commits falsos |
 | Contract integration | Templates locales, config, artifacts externos y seguridad |
+| Validation inspector | Diagnostico acumulativo, orden estable y ausencia de recuperacion/escrituras |
 | Workflow lifecycle | Todos los workflows completan su recorrido obligatorio |
 | CLI E2E | Binario real, stdout, stderr, JSON y exit codes |
 
@@ -1701,6 +1771,8 @@ Tests destacados:
 
 - `TestEveryWorkflowCompletesItsMandatoryLifecycle`;
 - `TestCLICompletesFastChangeLifecycle`;
+- `TestCLIValidateReportsMultipleFailuresWithoutMutation`;
+- `TestValidationInspectorDoesNotRecoverTransactions`;
 - `TestFullWorkItemLifecycle`;
 - `TestBypassModeStart`;
 - matrices de `BeginPhase`, `DeliverPhase` y `CompletePhase`;
@@ -1837,7 +1909,7 @@ Manifest, artifacts y eventos no son stores independientes desde la perspectiva 
 
 ### 33.5. Consultas puras
 
-`status` y `next` no mutan estado. La accion explicita se realiza con `begin`, `deliver`, `approve`, `reject` o `complete`.
+`status`, `next` y `validate` no mutan estado. `validate` tampoco recupera transacciones interrumpidas: diagnostica el snapshot visible. La accion explicita se realiza con `begin`, `deliver`, `approve`, `reject` o `complete`.
 
 ### 33.6. Contrato local
 
@@ -1851,7 +1923,6 @@ Luego de `init`, el proyecto controla sus workflows y templates locales. El bina
 
 | Capacidad | Estado |
 | --- | --- |
-| `sdd validate` | No expuesto |
 | Integracion con agente orquestador | No implementada |
 | Pruebas reales del harness completo | Pendientes |
 

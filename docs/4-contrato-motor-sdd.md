@@ -373,7 +373,7 @@ Cada línea de `events.jsonl` es un JSON válido. El formato es estable, extensi
 {"schema_version":"0.1","id":"evt_01J...","at":"2026-08-13T15:20:10Z","work_item":"feat-023-add-coupons","type":"phase.transitioned","actor":{"kind":"cli","id":"sdd"},"data":{"phase":"prd","from":"in_progress","to":"awaiting_approval"},"correlation_id":"run_01J..."}
 ```
 
-Tipos iniciales: `work_item.created`, `artifact.created`, `artifact.updated`, `phase.transitioned`, `approval.requested`, `approval.recorded`, `validation.completed`, `authorization.recorded`, `archive.completed` y `failure.recorded`.
+Tipos iniciales: `work_item.created`, `artifact.created`, `artifact.updated`, `phase.transitioned`, `approval.requested`, `approval.recorded`, `authorization.recorded`, `archive.completed` y `failure.recorded`. Un adaptador puede registrar `validation.completed` explícitamente mediante `record-event`, pero `sdd validate` no lo genera porque es una consulta pura.
 
 Campos opcionales de `actor` o `data`: adaptador, agente/rol, modelo, proveedor, duración, tokens de entrada/salida/cache, comandos ejecutados, hashes de artefactos, resultado de validación y referencias externas. Si el proveedor expone consumo, cada evento puede registrar el detalle y el bloque `observability.token_usage` del manifiesto conserva un agregado opcional. Los secretos, prompts completos con datos sensibles y credenciales no se guardan en el evento.
 
@@ -431,6 +431,23 @@ Estas reglas definen el comportamiento, aunque la CLI se implemente después:
 5. Acciones de efecto externo (commit, push, PR, tickets, despliegue) exigen una autorización registrada separada del gate de contenido; se delegan a la política/permisos del adaptador.
 6. La verificación registra resultados reales. No se marca `completed` si no hay reporte de evidencia, aun cuando alguna prueba esté explícitamente marcada como no aplicable.
 7. El archivo de un work item conserva todos sus artefactos y eventos; sólo entonces puede actualizarse el baseline de especificaciones y/o changelog.
+
+### Contrato de `sdd validate`
+
+```bash
+sdd validate
+sdd validate <work-item-id>
+sdd validate --json
+```
+
+- Sin ID inspecciona configuración, schemas, workflows, templates, procedures y todos los work items activos.
+- Con ID inspecciona sólo el expediente solicitado y los recursos contractuales que necesita.
+- El reporte contiene `scope`, `target`, `valid`, un resumen y checks con `status`, `category`, `code`, `target` y `message`.
+- Los checks pueden quedar `passed`, `warning` o `failed`; sólo `failed` invalida el resultado.
+- Una validación inválida usa `validation_failed`, conserva el reporte en `error.details` y devuelve exit code `1`.
+- Una fuente externa no disponible en la máquina actual produce una advertencia; si está disponible y su SHA-256 difiere, produce un error.
+- La primera versión valida work items activos. El soporte de expedientes archivados se incorpora junto con el archivado físico.
+- El comando no crea locks, no recupera transacciones, no escribe eventos y no incrementa `revision`.
 
 ### Garantías de persistencia v0.1
 

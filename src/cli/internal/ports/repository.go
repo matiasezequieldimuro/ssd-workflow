@@ -55,6 +55,11 @@ type ConfigRepository interface {
 	GetConfig(baseDir string) (*domain.Config, error)
 }
 
+type ValidationInspector interface {
+	InspectProject(baseDir string) ([]domain.ValidationCheck, error)
+	InspectWorkItem(baseDir string, id string) ([]domain.ValidationCheck, error)
+}
+
 type ExternalArtifact struct {
 	Path    string
 	SHA256  string

@@ -116,6 +116,69 @@ func TestCLICompletesFastChangeLifecycle(t *testing.T) {
 	if got := responseData(t, status)["status"]; got != "completed" {
 		t.Fatalf("final work item status = %v, want completed", got)
 	}
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "validate", "cli-contract")
+}
+
+func TestCLIValidateReportsMultipleFailuresWithoutMutation(t *testing.T) {
+	binary := buildTestBinary(t)
+	projectDir := t.TempDir()
+
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "init")
+	validProject := runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "validate")
+	if responseData(t, validProject)["valid"] != true {
+		t.Fatalf("project validation = %#v", validProject)
+	}
+	runJSONBinary(
+		t,
+		binary,
+		0,
+		"--json", "--dir", projectDir,
+		"start", "validate-contract",
+		"--workflow", "fast-change",
+		"--title", "Validate contract",
+	)
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "validate", "validate-contract")
+
+	itemDir := filepath.Join(projectDir, ".sdd", "work-items", "active", "validate-contract")
+	artifactPath := filepath.Join(itemDir, "artifacts", "plan.md")
+	eventsPath := filepath.Join(itemDir, "events.jsonl")
+	manifestPath := filepath.Join(itemDir, "manifest.yaml")
+	if err := os.WriteFile(artifactPath, []byte("# Missing front matter\n"), 0644); err != nil {
+		t.Fatalf("WriteFile() artifact error = %v", err)
+	}
+	events, err := os.ReadFile(eventsPath)
+	if err != nil {
+		t.Fatalf("ReadFile() events error = %v", err)
+	}
+	events = append(events, []byte("{invalid-json}\n")...)
+	if err := os.WriteFile(eventsPath, events, 0644); err != nil {
+		t.Fatalf("WriteFile() events error = %v", err)
+	}
+	beforeArtifact, _ := os.ReadFile(artifactPath)
+	beforeEvents, _ := os.ReadFile(eventsPath)
+	beforeManifest, _ := os.ReadFile(manifestPath)
+
+	response := runJSONBinary(t, binary, 1, "--json", "--dir", projectDir, "validate", "validate-contract")
+	if response.Error == nil || response.Error.Code != "validation_failed" {
+		t.Fatalf("validation response = %#v", response)
+	}
+	details, ok := response.Error.Details.(map[string]interface{})
+	if !ok {
+		t.Fatalf("validation details = %#v", response.Error.Details)
+	}
+	summary, ok := details["summary"].(map[string]interface{})
+	if !ok || summary["failed"].(float64) < 2 {
+		t.Fatalf("validation summary = %#v", details["summary"])
+	}
+
+	afterArtifact, _ := os.ReadFile(artifactPath)
+	afterEvents, _ := os.ReadFile(eventsPath)
+	afterManifest, _ := os.ReadFile(manifestPath)
+	if !bytes.Equal(beforeArtifact, afterArtifact) ||
+		!bytes.Equal(beforeEvents, afterEvents) ||
+		!bytes.Equal(beforeManifest, afterManifest) {
+		t.Fatal("validate modified the persisted work item")
+	}
 }
 
 func buildTestBinary(t *testing.T) string {

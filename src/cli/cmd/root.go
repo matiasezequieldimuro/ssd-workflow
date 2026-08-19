@@ -25,8 +25,9 @@ type JSONResponse struct {
 }
 
 type JSONError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string      `json:"code"`
+	Message string      `json:"message"`
+	Details interface{} `json:"details,omitempty"`
 }
 
 func NewRootCommand(application Application) *cobra.Command {
@@ -45,6 +46,7 @@ func NewRootCommand(application Application) *cobra.Command {
 		newStartCommand(application.Start, options),
 		newStatusCommand(application.Status, options),
 		newNextCommand(application.Next, options),
+		newValidateCommand(application.Validate, options),
 		newBeginCommand(application.Begin, options),
 		newDeliverCommand(application.Deliver, options),
 		newApproveCommand(application.Approve, options),
@@ -98,13 +100,21 @@ func outputSuccess(
 
 func outputError(command *cobra.Command, jsonOutput bool, err error) error {
 	if jsonOutput {
+		var details interface{}
+		if detailed, ok := err.(interface{ Details() interface{} }); ok {
+			details = detailed.Details()
+		}
 		return writeJSON(command.OutOrStdout(), JSONResponse{
 			Success: false,
 			Error: &JSONError{
 				Code:    errorCode(err),
 				Message: err.Error(),
+				Details: details,
 			},
 		})
+	}
+	if report, ok := err.(interface{ WriteText(io.Writer) error }); ok {
+		return report.WriteText(command.ErrOrStderr())
 	}
 	_, writeErr := fmt.Fprintf(command.ErrOrStderr(), "Error: %v\n", err)
 	return writeErr
@@ -131,6 +141,8 @@ func errorCode(err error) string {
 		return "concurrent_modification"
 	case errors.Is(err, domain.ErrWorkItemLocked):
 		return "work_item_locked"
+	case errors.Is(err, domain.ErrValidationFailed):
+		return "validation_failed"
 	case errors.Is(err, domain.ErrInvalidTransition),
 		errors.Is(err, domain.ErrPhaseNotAwaitingApproval),
 		errors.Is(err, domain.ErrPhaseBlocked),

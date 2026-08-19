@@ -85,6 +85,23 @@ func TestOrderedPhasesDoesNotDependOnDeclarationOrder(t *testing.T) {
 	}
 }
 
+func TestWorkflowValidationAccumulatesViolations(t *testing.T) {
+	workflow := testWorkflow(
+		[]domain.WorkflowPhase{
+			{ID: "one", Requires: []string{"missing"}, Produces: []string{"one"}, Approval: domain.ApprovalNone},
+			{ID: "one", Produces: []string{"two"}, Approval: domain.ApprovalNone},
+		},
+		[]domain.EntryPoint{{Phase: "unknown", Accepts: []string{"other"}}},
+	)
+	violations := workflow.SemanticViolations()
+	if len(violations) < 3 {
+		t.Fatalf("SemanticViolations() = %#v", violations)
+	}
+	if err := workflow.ValidateSemantics(); err == nil {
+		t.Fatal("ValidateSemantics() error = nil")
+	}
+}
+
 func testWorkflow(phases []domain.WorkflowPhase, entries []domain.EntryPoint) *domain.Workflow {
 	artifacts := make(map[string]domain.WorkflowArtifact)
 	for _, phase := range phases {

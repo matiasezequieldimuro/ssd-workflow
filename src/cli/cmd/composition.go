@@ -10,6 +10,7 @@ type Application struct {
 	Start       *usecases.StartWorkItemUseCase
 	Status      *usecases.StatusUseCase
 	Next        *usecases.NextUseCase
+	Validate    *usecases.ValidateUseCase
 	Begin       *usecases.BeginPhaseUseCase
 	Deliver     *usecases.DeliverPhaseUseCase
 	Approve     *usecases.ApproveUseCase
@@ -40,6 +41,9 @@ func NewProductionApplication() Application {
 		),
 		Status: usecases.NewStatusUseCase(workItems, workflows),
 		Next:   usecases.NewNextUseCase(workItems, workflows),
+		Validate: usecases.NewValidateUseCase(
+			infra.NewFSValidationInspector(),
+		),
 		Begin: usecases.NewBeginPhaseUseCase(
 			workItems,
 			workflows,

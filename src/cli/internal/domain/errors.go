@@ -24,4 +24,5 @@ var (
 	ErrConcurrentModification   = errors.New("concurrent work item modification")
 	ErrWorkItemLocked           = errors.New("work item is being modified")
 	ErrOperationAlreadyApplied  = errors.New("operation already applied")
+	ErrValidationFailed         = errors.New("validation failed")
 )

@@ -8,14 +8,23 @@ import (
 )
 
 func (workflow *Workflow) ValidateSemantics() error {
+	violations := workflow.SemanticViolations()
+	if len(violations) == 0 {
+		return nil
+	}
+	return violations[0]
+}
+
+func (workflow *Workflow) SemanticViolations() []ContractViolation {
+	var violations []ContractViolation
 	if err := ValidateIdentifier("workflow id", workflow.ID); err != nil {
-		return err
+		violations = append(violations, NewContractViolation("workflow.identifier_invalid", err, "%v", err))
 	}
 	if len(workflow.Phases) == 0 {
-		return fmt.Errorf("%w: workflow has no phases", ErrInvalidWorkflow)
+		violations = append(violations, NewContractViolation("workflow.phases_missing", ErrInvalidWorkflow, "workflow has no phases"))
 	}
 	if len(workflow.EntryPoints) == 0 {
-		return fmt.Errorf("%w: workflow has no entry points", ErrInvalidWorkflow)
+		violations = append(violations, NewContractViolation("workflow.entry_points_missing", ErrInvalidWorkflow, "workflow has no entry points"))
 	}
 
 	phaseIDs := make(map[string]struct{}, len(workflow.Phases))
@@ -23,34 +32,64 @@ func (workflow *Workflow) ValidateSemantics() error {
 	producedArtifacts := make(map[string]string, len(workflow.Artifacts))
 	for _, phase := range workflow.Phases {
 		if err := ValidateIdentifier("phase id", phase.ID); err != nil {
-			return err
+			violations = append(violations, NewContractViolation("workflow.phase_identifier_invalid", err, "%v", err))
 		}
 		if _, exists := phaseIDs[phase.ID]; exists {
-			return fmt.Errorf("%w: duplicate phase id %q", ErrInvalidWorkflow, phase.ID)
+			violations = append(violations, NewContractViolation("workflow.phase_duplicate", ErrInvalidWorkflow, "duplicate phase id %q", phase.ID))
 		}
 		phaseIDs[phase.ID] = struct{}{}
 		switch phase.Approval {
 		case ApprovalNone, ApprovalRequired, ApprovalOptional:
 		default:
-			return fmt.Errorf("%w: phase %s has unknown approval policy %q", ErrInvalidWorkflow, phase.ID, phase.Approval)
+			violations = append(violations, NewContractViolation(
+				"workflow.approval_policy_invalid",
+				ErrInvalidWorkflow,
+				"phase %s has unknown approval policy %q",
+				phase.ID,
+				phase.Approval,
+			))
 		}
 		if len(phase.Produces) != 1 {
-			return fmt.Errorf("%w: phase %s must produce exactly one artifact in contract v0.1", ErrInvalidWorkflow, phase.ID)
+			violations = append(violations, NewContractViolation(
+				"workflow.phase_artifact_count_invalid",
+				ErrInvalidWorkflow,
+				"phase %s must produce exactly one artifact in contract v0.1",
+				phase.ID,
+			))
 		}
 	}
 
-	for artifactID, artifact := range workflow.Artifacts {
+	artifactIDs := make([]string, 0, len(workflow.Artifacts))
+	for artifactID := range workflow.Artifacts {
+		artifactIDs = append(artifactIDs, artifactID)
+	}
+	sort.Strings(artifactIDs)
+	for _, artifactID := range artifactIDs {
+		artifact := workflow.Artifacts[artifactID]
 		if err := ValidateIdentifier("artifact id", artifactID); err != nil {
-			return err
+			violations = append(violations, NewContractViolation("workflow.artifact_identifier_invalid", err, "%v", err))
 		}
 		if err := ValidateIdentifier("template id", artifact.Template); err != nil {
-			return err
+			violations = append(violations, NewContractViolation("workflow.template_identifier_invalid", err, "%v", err))
 		}
 		if err := validateArtifactPath(artifact.Path); err != nil {
-			return fmt.Errorf("%w: artifact %s: %v", ErrInvalidWorkflow, artifactID, err)
+			violations = append(violations, NewContractViolation(
+				"workflow.artifact_path_invalid",
+				ErrInvalidWorkflow,
+				"artifact %s: %v",
+				artifactID,
+				err,
+			))
 		}
 		if existing, exists := artifactPaths[artifact.Path]; exists {
-			return fmt.Errorf("%w: artifacts %s and %s share path %q", ErrInvalidWorkflow, existing, artifactID, artifact.Path)
+			violations = append(violations, NewContractViolation(
+				"workflow.artifact_path_duplicate",
+				ErrInvalidWorkflow,
+				"artifacts %s and %s share path %q",
+				existing,
+				artifactID,
+				artifact.Path,
+			))
 		}
 		artifactPaths[artifact.Path] = artifactID
 	}
@@ -58,25 +97,54 @@ func (workflow *Workflow) ValidateSemantics() error {
 	for _, phase := range workflow.Phases {
 		for _, requiredID := range phase.Requires {
 			if requiredID == phase.ID {
-				return fmt.Errorf("%w: phase %s requires itself", ErrInvalidWorkflow, phase.ID)
+				violations = append(violations, NewContractViolation(
+					"workflow.phase_self_dependency",
+					ErrInvalidWorkflow,
+					"phase %s requires itself",
+					phase.ID,
+				))
 			}
 			if _, exists := phaseIDs[requiredID]; !exists {
-				return fmt.Errorf("%w: phase %s requires unknown phase %s", ErrInvalidWorkflow, phase.ID, requiredID)
+				violations = append(violations, NewContractViolation(
+					"workflow.phase_dependency_unknown",
+					ErrInvalidWorkflow,
+					"phase %s requires unknown phase %s",
+					phase.ID,
+					requiredID,
+				))
 			}
 		}
 		for _, artifactID := range phase.Produces {
 			if _, exists := workflow.Artifacts[artifactID]; !exists {
-				return fmt.Errorf("%w: phase %s produces unknown artifact %s", ErrInvalidWorkflow, phase.ID, artifactID)
+				violations = append(violations, NewContractViolation(
+					"workflow.produced_artifact_unknown",
+					ErrInvalidWorkflow,
+					"phase %s produces unknown artifact %s",
+					phase.ID,
+					artifactID,
+				))
 			}
 			if producer, exists := producedArtifacts[artifactID]; exists {
-				return fmt.Errorf("%w: phases %s and %s both produce artifact %s", ErrInvalidWorkflow, producer, phase.ID, artifactID)
+				violations = append(violations, NewContractViolation(
+					"workflow.artifact_producer_duplicate",
+					ErrInvalidWorkflow,
+					"phases %s and %s both produce artifact %s",
+					producer,
+					phase.ID,
+					artifactID,
+				))
 			}
 			producedArtifacts[artifactID] = phase.ID
 		}
 	}
-	for artifactID := range workflow.Artifacts {
+	for _, artifactID := range artifactIDs {
 		if _, exists := producedArtifacts[artifactID]; !exists {
-			return fmt.Errorf("%w: artifact %s is not produced by any phase", ErrInvalidWorkflow, artifactID)
+			violations = append(violations, NewContractViolation(
+				"workflow.artifact_producer_missing",
+				ErrInvalidWorkflow,
+				"artifact %s is not produced by any phase",
+				artifactID,
+			))
 		}
 	}
 
@@ -85,10 +153,21 @@ func (workflow *Workflow) ValidateSemantics() error {
 	for _, entry := range workflow.EntryPoints {
 		phase, exists := workflow.Phase(entry.Phase)
 		if !exists {
-			return fmt.Errorf("%w: entry point references unknown phase %s", ErrInvalidWorkflow, entry.Phase)
+			violations = append(violations, NewContractViolation(
+				"workflow.entry_phase_unknown",
+				ErrInvalidWorkflow,
+				"entry point references unknown phase %s",
+				entry.Phase,
+			))
+			continue
 		}
 		if _, duplicate := seenEntries[entry.Phase]; duplicate {
-			return fmt.Errorf("%w: duplicate entry point for phase %s", ErrInvalidWorkflow, entry.Phase)
+			violations = append(violations, NewContractViolation(
+				"workflow.entry_phase_duplicate",
+				ErrInvalidWorkflow,
+				"duplicate entry point for phase %s",
+				entry.Phase,
+			))
 		}
 		seenEntries[entry.Phase] = struct{}{}
 
@@ -98,38 +177,51 @@ func (workflow *Workflow) ValidateSemantics() error {
 		}
 		for _, acceptedInput := range entry.Accepts {
 			if existingPhase, exists := inputEntries[acceptedInput]; exists && existingPhase != entry.Phase {
-				return fmt.Errorf(
-					"%w: input %s is accepted by both %s and %s",
+				violations = append(violations, NewContractViolation(
+					"workflow.entry_input_ambiguous",
 					ErrInvalidWorkflow,
+					"input %s is accepted by both %s and %s",
 					acceptedInput,
 					existingPhase,
 					entry.Phase,
-				)
+				))
 			}
 			inputEntries[acceptedInput] = entry.Phase
 			if acceptedInput == "user_prompt" {
 				continue
 			}
 			if _, exists := produced[acceptedInput]; !exists {
-				return fmt.Errorf("%w: entry point %s accepts unknown input %s", ErrInvalidWorkflow, entry.Phase, acceptedInput)
+				violations = append(violations, NewContractViolation(
+					"workflow.entry_input_unknown",
+					ErrInvalidWorkflow,
+					"entry point %s accepts unknown input %s",
+					entry.Phase,
+					acceptedInput,
+				))
 			}
 		}
 	}
 
 	ordered, err := workflow.OrderedPhases()
 	if err != nil {
-		return err
-	}
-	reachable := workflow.reachableFromEntries()
-	if len(reachable) != len(ordered) {
-		for _, phase := range ordered {
-			if _, exists := reachable[phase.ID]; !exists {
-				return fmt.Errorf("%w: phase %s is unreachable from every entry point", ErrInvalidWorkflow, phase.ID)
+		violations = append(violations, NewContractViolation("workflow.graph_cycle", ErrInvalidWorkflow, "%v", err))
+	} else {
+		reachable := workflow.reachableFromEntries()
+		if len(reachable) != len(ordered) {
+			for _, phase := range ordered {
+				if _, exists := reachable[phase.ID]; !exists {
+					violations = append(violations, NewContractViolation(
+						"workflow.phase_unreachable",
+						ErrInvalidWorkflow,
+						"phase %s is unreachable from every entry point",
+						phase.ID,
+					))
+				}
 			}
 		}
 	}
 
-	return nil
+	return violations
 }
 
 func (workflow *Workflow) EntryPhaseFor(input string) (string, error) {
