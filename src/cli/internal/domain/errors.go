@@ -25,4 +25,7 @@ var (
 	ErrWorkItemLocked           = errors.New("work item is being modified")
 	ErrOperationAlreadyApplied  = errors.New("operation already applied")
 	ErrValidationFailed         = errors.New("validation failed")
+	ErrWorkItemCannotArchive    = errors.New("work item cannot be archived")
+	ErrWorkItemAlreadyArchived  = errors.New("work item is already archived")
+	ErrArchiveConflict          = errors.New("archive storage conflict")
 )

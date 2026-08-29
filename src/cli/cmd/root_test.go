@@ -131,3 +131,34 @@ func TestValidateRejectsMultipleTargets(t *testing.T) {
 		t.Fatalf("response = %#v", response)
 	}
 }
+
+func TestArchiveRequiresExactlyOneTarget(t *testing.T) {
+	root := NewRootCommand(Application{})
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&bytes.Buffer{})
+	root.SetArgs([]string{"--json", "archive"})
+
+	if err := executeRoot(root); err == nil {
+		t.Fatal("executeRoot() error = nil")
+	}
+	var response JSONResponse
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v; output = %s", err, stdout.String())
+	}
+	if response.Error == nil || response.Error.Code != "invalid_arguments" {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestArchiveErrorsUseStableCodes(t *testing.T) {
+	if got := errorCode(domain.ErrWorkItemAlreadyArchived); got != "already_archived" {
+		t.Fatalf("already archived code = %q", got)
+	}
+	if got := errorCode(domain.ErrArchiveConflict); got != "archive_conflict" {
+		t.Fatalf("archive conflict code = %q", got)
+	}
+	if got := errorCode(domain.ErrWorkItemCannotArchive); got != "invalid_transition" {
+		t.Fatalf("cannot archive code = %q", got)
+	}
+}

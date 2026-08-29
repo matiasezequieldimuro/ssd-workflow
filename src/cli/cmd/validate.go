@@ -11,14 +11,12 @@ import (
 	"sdd-cli/internal/usecases"
 )
 
-type validationReportError struct {
-	report *usecases.ValidationReport
-}
+type validationReportError struct{ failure *usecases.ValidationFailure }
 
 func newValidateCommand(useCase *usecases.ValidateUseCase, options *rootOptions) *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate [work-item-id]",
-		Short: "Validate the SDD project or one active work item",
+		Short: "Validate the SDD project or one work item",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			workItemID := ""
@@ -30,7 +28,7 @@ func newValidateCommand(useCase *usecases.ValidateUseCase, options *rootOptions)
 				return err
 			}
 			if !report.Valid {
-				return &validationReportError{report: report}
+				return &validationReportError{failure: &usecases.ValidationFailure{Report: report}}
 			}
 			return outputSuccess(command, options.json, report, func(writer io.Writer) error {
 				return printValidationReport(writer, report)
@@ -40,19 +38,19 @@ func newValidateCommand(useCase *usecases.ValidateUseCase, options *rootOptions)
 }
 
 func (err *validationReportError) Error() string {
-	return fmt.Sprintf("validation found %d error(s)", err.report.Summary.Failed)
+	return err.failure.Error()
 }
 
 func (err *validationReportError) Unwrap() error {
-	return domain.ErrValidationFailed
+	return err.failure
 }
 
 func (err *validationReportError) Details() interface{} {
-	return err.report
+	return err.failure.Details()
 }
 
 func (err *validationReportError) WriteText(writer io.Writer) error {
-	return printValidationReport(writer, err.report)
+	return printValidationReport(writer, err.failure.Report)
 }
 
 func printValidationReport(writer io.Writer, report *usecases.ValidationReport) error {

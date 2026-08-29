@@ -360,7 +360,7 @@ sdd validate feat-023
 sdd validate feat-023 --json
 ```
 
-Sin ID valida el contrato local y todos los work items activos. Con ID limita el
+Sin ID valida el contrato local y todos los work items activos y archivados. Con ID limita el
 scope al expediente indicado y a su workflow, templates, procedures, artifacts,
 eventos y referencias.
 
@@ -371,6 +371,34 @@ estructurado en `error.details`. Las advertencias no cambian el exit code.
 El comando no usa el repositorio mutante: lee el snapshot visible mediante
 `ValidationInspector`, no recupera transacciones, no crea eventos y no incrementa
 la revisión.
+
+---
+
+### `sdd archive <id>`
+
+Cierra físicamente un expediente completado:
+
+```bash
+sdd complete feat-023
+sdd begin feat-023 --phase archive
+sdd deliver feat-023 --phase archive
+sdd archive feat-023 --operation-id run:feat-023:archive
+```
+
+| Flag | Obligatorio | Default | Descripción |
+| :--- | :--- | :--- | :--- |
+| `--actor-kind` | ❌ | `cli` | Tipo de actor |
+| `--actor-id` | ❌ | `sdd` | ID del actor |
+| `--operation-id` | ❌ | — | Clave estable para reintentos idempotentes |
+
+El comando exige `status: completed`, la fase declarativa `archive` satisfecha
+cuando existe y un expediente válido. Publica el snapshot final en
+`.sdd/work-items/archive/YYYY-MM-DD-<id>/`, cambia el manifest a `archived`,
+incrementa la revisión y agrega `archive.completed`.
+
+La persistencia usa stage, marker y backup bajo `.transactions/`. Un fallo antes
+del destino restaura `active/`; un retry con el mismo operation ID localiza el
+evento en archive y devuelve el resultado confirmado.
 
 ---
 
@@ -406,7 +434,8 @@ El contrato de aplicación se divide por capacidad:
 
 | Port | Responsabilidad | Consumidores |
 | :--- | :--- | :--- |
-| `WorkItemReader` | Cargar el agregado | `status`, `next` y operaciones mutantes |
+| `WorkItemReader` | Cargar un agregado activo | `next` y operaciones mutantes |
+| `WorkItemCatalogReader` | Localizar un agregado activo o archivado | `status` |
 | `WorkItemExistenceChecker` | Detectar colisiones al crear | `start` |
 | `OperationTracker` | Comprobar `operation_id` aplicado | Operaciones mutantes |
 | `WorkItemCommitter` | Confirmar manifest, artifacts y eventos juntos | Operaciones mutantes |
@@ -414,6 +443,7 @@ El contrato de aplicación se divide por capacidad:
 | `ExternalArtifactImporter` | Resolver, hashear e importar evidencia externa | `start` |
 | `ProjectInitializer` | Publicar `.sdd/` de forma atómica | `init` |
 | `ValidationInspector` | Inspeccionar contrato y expedientes sin mutarlos | `validate` |
+| `WorkItemArchiver` | Publicar y recuperar el movimiento físico a archive | `archive` |
 | `Clock` | Proveer timestamps controlables | Creación, approvals, artifacts y eventos |
 | `IDGenerator` | Generar IDs únicos de eventos | Todas las mutaciones |
 
@@ -514,20 +544,17 @@ El test de workflows no mantiene una lista duplicada: descubre los archivos inst
 
 ```mermaid
 graph LR
-    CLI["✅ CLI + reject + validate\nImplementados"]
+    CLI["✅ CLI + reject + validate + archive\nImplementados"]
     AGENT["🔴 Integración Agente\nOrquestador usa la CLI"]
-    ARCHIVE["🟡 sdd archive\nArchivar work item"]
     ENGRAM["🟢 Engram + CodeGraph\nMemoria semántica"]
 
     CLI --> AGENT
-    AGENT --> ARCHIVE
-    ARCHIVE --> ENGRAM
+    AGENT --> ENGRAM
 ```
 
 | Prioridad | Paso | Descripción |
 | :--- | :--- | :--- |
 | 🔴 Alta | **Integración del agente orquestador** | Instruir al agente (via `AGENTS.md` o skill) para que invoque la CLI como autoridad de estado |
-| 🟡 Media | **`sdd archive <id>`** | Mover un work item completado de `active/` a `archive/YYYY-MM-DD-<id>/` |
 | 🟢 Baja | **Validación de Event Types** | Validar que el tipo en `record-event` respete el patrón del schema |
 | 🟢 Baja | **Engram + CodeGraph** | Integración con memoria semántica (fuera del scope de Fase 1) |
 

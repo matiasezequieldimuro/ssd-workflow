@@ -20,8 +20,33 @@ type WorkItemCommit struct {
 	OperationID string
 }
 
+type WorkItemLocation string
+
+const (
+	WorkItemLocationActive  WorkItemLocation = "active"
+	WorkItemLocationArchive WorkItemLocation = "archive"
+)
+
+type LocatedWorkItem struct {
+	Item         *domain.WorkItem
+	Location     WorkItemLocation
+	RelativePath string
+}
+
+type WorkItemArchiveCommit struct {
+	Item        *domain.WorkItem
+	Event       domain.Event
+	ArchivedAt  time.Time
+	Destination string
+	OperationID string
+}
+
 type WorkItemReader interface {
 	GetWorkItem(baseDir string, id string) (*domain.WorkItem, error)
+}
+
+type WorkItemCatalogReader interface {
+	FindWorkItem(baseDir string, id string) (*LocatedWorkItem, error)
 }
 
 type WorkItemExistenceChecker interface {
@@ -45,6 +70,12 @@ type WorkItemMutationRepository interface {
 type WorkItemCreationRepository interface {
 	WorkItemMutationRepository
 	WorkItemExistenceChecker
+}
+
+type WorkItemArchiver interface {
+	FindArchivedWorkItem(baseDir string, id string) (*LocatedWorkItem, error)
+	ArchivedOperationApplied(baseDir string, id string, operationID string) (bool, error)
+	ArchiveWorkItem(baseDir string, commit WorkItemArchiveCommit) (*LocatedWorkItem, error)
 }
 
 type WorkflowRepository interface {

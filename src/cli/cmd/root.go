@@ -52,6 +52,7 @@ func NewRootCommand(application Application) *cobra.Command {
 		newApproveCommand(application.Approve, options),
 		newRejectCommand(application.Reject, options),
 		newCompleteCommand(application.Complete, options),
+		newArchiveCommand(application.Archive, options),
 		newRecordEventCommand(application.RecordEvent, options),
 	)
 	return root
@@ -137,6 +138,10 @@ func errorCode(err error) string {
 		return "not_found"
 	case errors.Is(err, domain.ErrWorkItemAlreadyExists):
 		return "already_exists"
+	case errors.Is(err, domain.ErrWorkItemAlreadyArchived):
+		return "already_archived"
+	case errors.Is(err, domain.ErrArchiveConflict):
+		return "archive_conflict"
 	case errors.Is(err, domain.ErrConcurrentModification):
 		return "concurrent_modification"
 	case errors.Is(err, domain.ErrWorkItemLocked):
@@ -148,7 +153,8 @@ func errorCode(err error) string {
 		errors.Is(err, domain.ErrPhaseBlocked),
 		errors.Is(err, domain.ErrHumanActorRequired),
 		errors.Is(err, domain.ErrApprovalNotAllowed),
-		errors.Is(err, domain.ErrWorkItemCannotComplete):
+		errors.Is(err, domain.ErrWorkItemCannotComplete),
+		errors.Is(err, domain.ErrWorkItemCannotArchive):
 		return "invalid_transition"
 	case errors.Is(err, domain.ErrInvalidIdentifier),
 		errors.Is(err, domain.ErrInvalidActor),

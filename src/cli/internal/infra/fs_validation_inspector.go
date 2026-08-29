@@ -71,6 +71,7 @@ func (inspector *FSValidationInspector) InspectProject(baseDir string) ([]domain
 		".sdd/templates",
 		".sdd/procedures",
 		".sdd/work-items/active",
+		".sdd/work-items/archive",
 	}
 	for _, path := range requiredDirectories {
 		context.inspectDirectory(path, categoryProject, "project.required_path_exists", true)
@@ -88,6 +89,7 @@ func (inspector *FSValidationInspector) InspectProject(baseDir string) ([]domain
 		}
 	}
 
+	activeIDs := make(map[string]struct{})
 	activePath := filepath.Join(baseDir, ".sdd", "work-items", "active")
 	entries, err := os.ReadDir(activePath)
 	if err != nil {
@@ -108,7 +110,52 @@ func (inspector *FSValidationInspector) InspectProject(baseDir string) ([]domain
 			continue
 		}
 		context.pass(categoryProject, "project.work_item_entry_valid", target, "work item directory is valid")
-		inspector.inspectWorkItem(context, entry.Name(), false)
+		activeIDs[entry.Name()] = struct{}{}
+		inspector.inspectWorkItem(
+			context,
+			entry.Name(),
+			false,
+			target,
+			ports.WorkItemLocationActive,
+		)
+	}
+
+	archiveIDs := make(map[string]int)
+	archivePath := filepath.Join(baseDir, ".sdd", "work-items", "archive")
+	archiveEntries, err := os.ReadDir(archivePath)
+	if err != nil {
+		context.fail(categoryProject, "project.work_items_readable", ".sdd/work-items/archive", err.Error())
+		return context.checks, nil
+	}
+	for _, entry := range archiveEntries {
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		target := filepath.ToSlash(filepath.Join(".sdd", "work-items", "archive", entry.Name()))
+		if !entry.IsDir() {
+			context.fail(categoryProject, "archive.entry_valid", target, "archive entry must be a directory")
+			continue
+		}
+		id, err := parseArchiveDirectoryName(entry.Name())
+		if err != nil {
+			context.fail(categoryProject, "archive.entry_valid", target, err.Error())
+			continue
+		}
+		context.pass(categoryProject, "archive.entry_valid", target, "archive directory name is valid")
+		archiveIDs[id]++
+		if archiveIDs[id] > 1 {
+			context.fail(categoryProject, "archive.id_unique", target, fmt.Sprintf("multiple archive entries found for %s", id))
+		}
+		if _, exists := activeIDs[id]; exists {
+			context.fail(categoryProject, "work_item.location_unique", target, fmt.Sprintf("work item %s exists in active and archive", id))
+		}
+		inspector.inspectWorkItem(
+			context,
+			id,
+			false,
+			target,
+			ports.WorkItemLocationArchive,
+		)
 	}
 
 	return context.checks, nil
@@ -123,20 +170,59 @@ func (inspector *FSValidationInspector) InspectWorkItem(baseDir, id string) ([]d
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Stat(workItemPath)
-	if os.IsNotExist(err) {
-		return nil, domain.ErrWorkItemNotFound
+	activeInfo, activeErr := os.Stat(workItemPath)
+	activeExists := activeErr == nil && activeInfo.IsDir()
+	if activeErr != nil && !os.IsNotExist(activeErr) {
+		return nil, fmt.Errorf("inspect work item %s: %w", id, activeErr)
 	}
+	archiveTargets, err := inspector.archiveTargetsForID(baseDir, id)
 	if err != nil {
-		return nil, fmt.Errorf("inspect work item %s: %w", id, err)
+		return nil, err
 	}
-	if !info.IsDir() {
+	if !activeExists && len(archiveTargets) == 0 {
 		return nil, domain.ErrWorkItemNotFound
 	}
 
 	inspector.inspectSchemas(context)
-	inspector.inspectWorkItem(context, id, true)
+	if activeExists {
+		activeTarget := filepath.ToSlash(filepath.Join(".sdd", "work-items", "active", id))
+		inspector.inspectWorkItem(context, id, true, activeTarget, ports.WorkItemLocationActive)
+	}
+	for _, target := range archiveTargets {
+		if activeExists || len(archiveTargets) > 1 {
+			context.fail(
+				categoryProject,
+				"work_item.location_unique",
+				target,
+				fmt.Sprintf("work item %s has multiple storage locations", id),
+			)
+		}
+		inspector.inspectWorkItem(context, id, true, target, ports.WorkItemLocationArchive)
+	}
 	return context.checks, nil
+}
+
+func (inspector *FSValidationInspector) archiveTargetsForID(baseDir, id string) ([]string, error) {
+	archiveRoot, err := containedPath(filepath.Join(baseDir, ".sdd"), "work-items", "archive")
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(archiveRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("inspect archive directory: %w", err)
+	}
+	var targets []string
+	for _, entry := range entries {
+		entryID, parseErr := parseArchiveDirectoryName(entry.Name())
+		if parseErr != nil || entryID != id || !entry.IsDir() {
+			continue
+		}
+		targets = append(targets, filepath.ToSlash(filepath.Join(".sdd", "work-items", "archive", entry.Name())))
+	}
+	return targets, nil
 }
 
 func newValidationContext(baseDir string) *validationContext {
@@ -416,8 +502,9 @@ func (inspector *FSValidationInspector) inspectWorkItem(
 	context *validationContext,
 	id string,
 	inspectReferencedWorkflow bool,
+	baseTarget string,
+	location ports.WorkItemLocation,
 ) {
-	baseTarget := filepath.ToSlash(filepath.Join(".sdd", "work-items", "active", id))
 	manifestTarget := filepath.ToSlash(filepath.Join(baseTarget, "manifest.yaml"))
 	data, err := os.ReadFile(context.absolute(manifestTarget))
 	if err != nil {
@@ -445,9 +532,16 @@ func (inspector *FSValidationInspector) inspectWorkItem(
 		}
 	}
 	if item.ID != id {
-		context.fail(categoryManifest, "manifest.id_matches_directory", manifestTarget, fmt.Sprintf("manifest id %q does not match directory %q", item.ID, id))
+		context.fail(categoryManifest, "manifest.id_matches_directory", manifestTarget, fmt.Sprintf("manifest id %q does not match work item id %q", item.ID, id))
 	} else {
 		context.pass(categoryManifest, "manifest.id_matches_directory", manifestTarget, "manifest id matches directory")
+	}
+	if location == ports.WorkItemLocationArchive && item.Status != domain.WorkItemArchived {
+		context.fail(categoryManifest, "archive.manifest_status_matches_location", manifestTarget, fmt.Sprintf("archived work item has status %s", item.Status))
+	} else if location == ports.WorkItemLocationActive && item.Status == domain.WorkItemArchived {
+		context.fail(categoryManifest, "archive.manifest_status_matches_location", manifestTarget, "active work item cannot have archived status")
+	} else {
+		context.pass(categoryManifest, "archive.manifest_status_matches_location", manifestTarget, "manifest status matches storage location")
 	}
 
 	if inspectReferencedWorkflow {
@@ -589,6 +683,8 @@ func (inspector *FSValidationInspector) inspectEvents(
 	eventCount := 0
 	seenIDs := make(map[string]struct{})
 	lastTransitions := make(map[string]domain.PhaseStatus)
+	lifecycleStatus := domain.WorkItemActive
+	archiveEvents := 0
 	for scanner.Scan() {
 		lineNumber++
 		lineTarget := fmt.Sprintf("%s:%d", target, lineNumber)
@@ -644,6 +740,24 @@ func (inspector *FSValidationInspector) inspectEvents(
 		if event.Type == "approval.requested" || event.Type == "approval.recorded" {
 			inspector.inspectApprovalEvent(context, event, workflow, lineTarget)
 		}
+		switch event.Type {
+		case "work_item.completed":
+			if lifecycleStatus != domain.WorkItemActive {
+				context.fail(categoryEvent, "event.lifecycle_continuity_valid", lineTarget, fmt.Sprintf("work item completion follows %s", lifecycleStatus))
+			} else {
+				context.pass(categoryEvent, "event.lifecycle_continuity_valid", lineTarget, "work item completion follows active state")
+			}
+			lifecycleStatus = domain.WorkItemCompleted
+		case "archive.completed":
+			archiveEvents++
+			if lifecycleStatus != domain.WorkItemCompleted {
+				context.fail(categoryEvent, "event.lifecycle_continuity_valid", lineTarget, fmt.Sprintf("archive completion follows %s", lifecycleStatus))
+			} else {
+				context.pass(categoryEvent, "event.lifecycle_continuity_valid", lineTarget, "archive completion follows completed state")
+			}
+			inspector.inspectArchiveEvent(context, event, baseTarget, lineTarget)
+			lifecycleStatus = domain.WorkItemArchived
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		context.fail(categoryEvent, "event.file_readable", target, err.Error())
@@ -660,6 +774,39 @@ func (inspector *FSValidationInspector) inspectEvents(
 			context.pass(categoryEvent, "event.transition_matches_manifest", target, fmt.Sprintf("phase %s transition history matches manifest", phaseID))
 		}
 	}
+	if archiveEvents > 1 {
+		context.fail(categoryEvent, "event.archive_unique", target, fmt.Sprintf("event log contains %d archive.completed events", archiveEvents))
+	} else {
+		context.pass(categoryEvent, "event.archive_unique", target, "archive completion event is unique")
+	}
+	if item.Status != lifecycleStatus {
+		context.fail(
+			categoryEvent,
+			"event.lifecycle_matches_manifest",
+			target,
+			fmt.Sprintf("event lifecycle ends in %s but manifest is %s", lifecycleStatus, item.Status),
+		)
+	} else {
+		context.pass(categoryEvent, "event.lifecycle_matches_manifest", target, "event lifecycle matches manifest status")
+	}
+}
+
+func (inspector *FSValidationInspector) inspectArchiveEvent(
+	context *validationContext,
+	event domain.Event,
+	baseTarget, target string,
+) {
+	from, fromOK := event.Data["from"].(string)
+	to, toOK := event.Data["to"].(string)
+	archivePath, pathOK := event.Data["archive_path"].(string)
+	if !fromOK || !toOK || !pathOK ||
+		from != string(domain.WorkItemCompleted) ||
+		to != string(domain.WorkItemArchived) ||
+		filepath.ToSlash(archivePath) != filepath.ToSlash(baseTarget) {
+		context.fail(categoryEvent, "event.archive_payload_valid", target, "archive event requires completed -> archived and the persisted archive path")
+		return
+	}
+	context.pass(categoryEvent, "event.archive_payload_valid", target, "archive event payload matches archived location")
 }
 
 func (inspector *FSValidationInspector) inspectTransitionEvent(

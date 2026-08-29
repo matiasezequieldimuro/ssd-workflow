@@ -315,6 +315,18 @@ func (repository *memoryWorkItemRepository) GetWorkItem(_ string, _ string) (*do
 	return repository.item, nil
 }
 
+func (repository *memoryWorkItemRepository) FindWorkItem(_ string, _ string) (*ports.LocatedWorkItem, error) {
+	item, err := repository.GetWorkItem("", "")
+	if err != nil {
+		return nil, err
+	}
+	return &ports.LocatedWorkItem{
+		Item:         item,
+		Location:     ports.WorkItemLocationActive,
+		RelativePath: ".sdd/work-items/active/" + item.ID,
+	}, nil
+}
+
 func (repository *memoryWorkItemRepository) WorkItemExists(_ string, _ string) (bool, error) {
 	if repository.existsErr != nil {
 		return false, repository.existsErr

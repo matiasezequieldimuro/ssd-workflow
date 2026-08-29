@@ -26,6 +26,14 @@ func newStatusCommand(useCase *usecases.StatusUseCase, options *rootOptions) *co
 				if _, err := fmt.Fprintf(writer, "Title: %s\nWorkflow: %s\n", result.Title, result.Workflow.ID); err != nil {
 					return err
 				}
+				if _, err := fmt.Fprintf(writer, "Location: %s\n", result.Location); err != nil {
+					return err
+				}
+				if result.ArchivePath != "" {
+					if _, err := fmt.Fprintf(writer, "Archive path: %s\n", result.ArchivePath); err != nil {
+						return err
+					}
+				}
 				if _, err := fmt.Fprintln(writer, "-------------------------------------------------------------"); err != nil {
 					return err
 				}

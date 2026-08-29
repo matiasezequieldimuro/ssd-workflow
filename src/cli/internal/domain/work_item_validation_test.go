@@ -57,3 +57,30 @@ func TestWorkItemValidationAcceptsRejectedApprovalDuringRework(t *testing.T) {
 		t.Fatalf("ValidateAgainst() error = %v", err)
 	}
 }
+
+func TestWorkItemValidationRejectsArchivedItemWithoutCompletedArchivePhase(t *testing.T) {
+	workflow := testWorkflow(
+		[]domain.WorkflowPhase{{ID: "archive", Produces: []string{"archive-record"}, Approval: domain.ApprovalNone, Optional: true}},
+		[]domain.EntryPoint{{Phase: "archive", Accepts: []string{"user_prompt"}}},
+	)
+	item := &domain.WorkItem{
+		Workflow: domain.WorkItemWorkflow{ID: workflow.ID, Version: workflow.SchemaVersion, EntryPhase: "archive"},
+		Type:     workflow.WorkItemType,
+		Status:   domain.WorkItemArchived,
+		Input:    domain.WorkItemInput{Source: "user_prompt"},
+		Phases: map[string]domain.PhaseState{
+			"archive": {Status: domain.PhaseReady, Artifact: "artifacts/archive-record.md"},
+		},
+	}
+
+	violations := item.ViolationsAgainst(workflow)
+	found := false
+	for _, violation := range violations {
+		if violation.Code == "work_item.archive_invalid" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ViolationsAgainst() = %#v, want archive violation", violations)
+	}
+}

@@ -57,14 +57,18 @@ func (r *FSWorkItemRepository) WorkItemExists(baseDir, id string) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	_, err = os.Stat(path)
-	if err == nil {
-		return true, nil
+	activeExists, err := pathExists(path)
+	if err != nil {
+		return false, fmt.Errorf("failed to inspect manifest.yaml: %w", err)
 	}
-	if os.IsNotExist(err) {
-		return false, nil
+	archived, err := r.findArchivedWorkItemNoRecovery(baseDir, id)
+	if err != nil && !errors.Is(err, domain.ErrWorkItemNotFound) {
+		return false, err
 	}
-	return false, fmt.Errorf("failed to inspect manifest.yaml: %w", err)
+	if activeExists && archived != nil {
+		return false, fmt.Errorf("%w: work item %s exists in active and archive", domain.ErrArchiveConflict, id)
+	}
+	return activeExists || archived != nil, nil
 }
 
 func (r *FSWorkItemRepository) GetWorkItem(baseDir, id string) (*domain.WorkItem, error) {
@@ -75,7 +79,11 @@ func (r *FSWorkItemRepository) GetWorkItem(baseDir, id string) (*domain.WorkItem
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(manifestPath)
+	return r.readWorkItemAt(baseDir, filepath.Dir(manifestPath), id)
+}
+
+func (r *FSWorkItemRepository) readWorkItemAt(baseDir, workItemPath, id string) (*domain.WorkItem, error) {
+	data, err := os.ReadFile(filepath.Join(workItemPath, "manifest.yaml"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, domain.ErrWorkItemNotFound
@@ -272,6 +280,9 @@ func (r *FSWorkItemRepository) CommitWorkItem(baseDir string, commit ports.WorkI
 }
 
 func (r *FSWorkItemRepository) recoverIfNeeded(baseDir, id string) error {
+	if err := r.recoverArchiveIfNeeded(baseDir, id); err != nil {
+		return err
+	}
 	workItemPath, err := r.getWorkItemPath(baseDir, id)
 	if err != nil {
 		return err

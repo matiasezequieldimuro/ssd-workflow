@@ -15,15 +15,17 @@ type StatusPhase struct {
 
 type StatusResult struct {
 	*domain.WorkItem
-	OrderedPhases []StatusPhase `json:"-" yaml:"-"`
+	Location      ports.WorkItemLocation `json:"location" yaml:"location"`
+	ArchivePath   string                 `json:"archive_path,omitempty" yaml:"archive_path,omitempty"`
+	OrderedPhases []StatusPhase          `json:"-" yaml:"-"`
 }
 
 type StatusUseCase struct {
-	workItemRepo ports.WorkItemReader
+	workItemRepo ports.WorkItemCatalogReader
 	workflowRepo ports.WorkflowRepository
 }
 
-func NewStatusUseCase(repo ports.WorkItemReader, workflowRepo ports.WorkflowRepository) *StatusUseCase {
+func NewStatusUseCase(repo ports.WorkItemCatalogReader, workflowRepo ports.WorkflowRepository) *StatusUseCase {
 	return &StatusUseCase{
 		workItemRepo: repo,
 		workflowRepo: workflowRepo,
@@ -31,10 +33,11 @@ func NewStatusUseCase(repo ports.WorkItemReader, workflowRepo ports.WorkflowRepo
 }
 
 func (uc *StatusUseCase) Execute(baseDir, id string) (*StatusResult, error) {
-	item, err := uc.workItemRepo.GetWorkItem(baseDir, id)
+	record, err := uc.workItemRepo.FindWorkItem(baseDir, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status for work item %s: %w", id, err)
 	}
+	item := record.Item
 	workflow, err := uc.workflowRepo.GetWorkflow(baseDir, item.Workflow.ID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get status workflow: %w", err)
@@ -54,6 +57,15 @@ func (uc *StatusUseCase) Execute(baseDir, id string) (*StatusResult, error) {
 	}
 	return &StatusResult{
 		WorkItem:      item,
+		Location:      record.Location,
+		ArchivePath:   archivePath(record),
 		OrderedPhases: phases,
 	}, nil
+}
+
+func archivePath(record *ports.LocatedWorkItem) string {
+	if record.Location == ports.WorkItemLocationArchive {
+		return record.RelativePath
+	}
+	return ""
 }

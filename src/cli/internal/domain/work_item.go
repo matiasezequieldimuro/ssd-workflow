@@ -406,6 +406,48 @@ func (item *WorkItem) Complete(workflow *Workflow) error {
 	return nil
 }
 
+func (item *WorkItem) Archive(workflow *Workflow) error {
+	if err := item.archiveEligibility(workflow); err != nil {
+		return err
+	}
+	item.Status = WorkItemArchived
+	return nil
+}
+
+func (item *WorkItem) archiveEligibility(workflow *Workflow) error {
+	if workflow == nil {
+		return fmt.Errorf("%w: workflow is required", ErrWorkItemCannotArchive)
+	}
+	if item.Status != WorkItemCompleted {
+		return fmt.Errorf("%w: current status is %s", ErrWorkItemCannotArchive, item.Status)
+	}
+	for _, phase := range workflow.Phases {
+		state, exists := item.Phases[phase.ID]
+		if !exists {
+			return fmt.Errorf("%w: phase %s has no state", ErrWorkItemCannotArchive, phase.ID)
+		}
+		if phase.Optional && phase.ID != "archive" &&
+			(state.Status == PhaseBlocked || state.Status == PhaseReady || state.Status == PhaseNotApplicable) {
+			continue
+		}
+		if phase.ID != "archive" && !state.Status.satisfiesCompletion() {
+			return fmt.Errorf("%w: phase %s is %s", ErrWorkItemCannotArchive, phase.ID, state.Status)
+		}
+	}
+	_, exists := workflow.Phase("archive")
+	if !exists {
+		return nil
+	}
+	state, exists := item.Phases["archive"]
+	if !exists {
+		return fmt.Errorf("%w: phase archive has no state", ErrWorkItemCannotArchive)
+	}
+	if !state.Status.satisfiesCompletion() {
+		return fmt.Errorf("%w: phase archive is %s", ErrWorkItemCannotArchive, state.Status)
+	}
+	return nil
+}
+
 func (item *WorkItem) NextPhase(workflow *Workflow) (*NextPhase, error) {
 	orderedPhases, err := workflow.OrderedPhases()
 	if err != nil {

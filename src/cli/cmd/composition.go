@@ -16,6 +16,7 @@ type Application struct {
 	Approve     *usecases.ApproveUseCase
 	Reject      *usecases.RejectUseCase
 	Complete    *usecases.CompleteUseCase
+	Archive     *usecases.ArchiveUseCase
 	RecordEvent *usecases.RecordEventUseCase
 }
 
@@ -26,6 +27,7 @@ func NewProductionApplication() Application {
 	artifacts := infra.NewArtifactManager()
 	clock := infra.NewSystemClock()
 	ids := infra.NewCryptoIDGenerator()
+	validator := infra.NewFSValidationInspector()
 
 	return Application{
 		Init: usecases.NewInitUseCase(
@@ -42,7 +44,7 @@ func NewProductionApplication() Application {
 		Status: usecases.NewStatusUseCase(workItems, workflows),
 		Next:   usecases.NewNextUseCase(workItems, workflows),
 		Validate: usecases.NewValidateUseCase(
-			infra.NewFSValidationInspector(),
+			validator,
 		),
 		Begin: usecases.NewBeginPhaseUseCase(
 			workItems,
@@ -74,6 +76,14 @@ func NewProductionApplication() Application {
 			workItems,
 			workflows,
 			artifacts,
+			clock,
+			ids,
+		),
+		Archive: usecases.NewArchiveUseCase(
+			workItems,
+			workflows,
+			validator,
+			workItems,
 			clock,
 			ids,
 		),

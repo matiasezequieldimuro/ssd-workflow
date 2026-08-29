@@ -440,14 +440,33 @@ sdd validate <work-item-id>
 sdd validate --json
 ```
 
-- Sin ID inspecciona configuración, schemas, workflows, templates, procedures y todos los work items activos.
+- Sin ID inspecciona configuración, schemas, workflows, templates, procedures y todos los work items activos y archivados.
 - Con ID inspecciona sólo el expediente solicitado y los recursos contractuales que necesita.
 - El reporte contiene `scope`, `target`, `valid`, un resumen y checks con `status`, `category`, `code`, `target` y `message`.
 - Los checks pueden quedar `passed`, `warning` o `failed`; sólo `failed` invalida el resultado.
 - Una validación inválida usa `validation_failed`, conserva el reporte en `error.details` y devuelve exit code `1`.
 - Una fuente externa no disponible en la máquina actual produce una advertencia; si está disponible y su SHA-256 difiere, produce un error.
-- La primera versión valida work items activos. El soporte de expedientes archivados se incorpora junto con el archivado físico.
+- Los directorios archivados deben seguir `archive/YYYY-MM-DD-<id>/`, conservar `status: archived` y terminar su lifecycle con un único evento `archive.completed`.
 - El comando no crea locks, no recupera transacciones, no escribe eventos y no incrementa `revision`.
+
+### Contrato de `sdd archive`
+
+```bash
+sdd archive <work-item-id> \
+  [--actor-kind cli] \
+  [--actor-id sdd] \
+  [--operation-id <id>]
+```
+
+- Sólo acepta work items `completed`.
+- Si el workflow declara una fase `archive`, debe estar satisfecha antes del movimiento físico.
+- Ejecuta el mismo diagnóstico acumulativo de `validate <id>`; los failures bloquean y los warnings no.
+- Cambia el manifest a `archived`, incrementa `revision` y agrega `archive.completed` dentro del snapshot publicado.
+- Mueve el expediente completo a `work-items/archive/YYYY-MM-DD-<id>/` sin sobrescribir destinos.
+- El destino archivado es inmutable para los comandos mutantes.
+- Un retry con el mismo `operation_id` localiza el evento en archive y devuelve el resultado sin duplicar cambios.
+- `status` y `validate` localizan el work item por su ID lógico, sin exigir al caller conocer la fecha.
+- Un ID presente en active o archive no puede reutilizarse con `start`.
 
 ### Garantías de persistencia v0.1
 
@@ -458,12 +477,13 @@ sdd validate --json
 - El snapshot anterior se conserva como backup recuperable. Si el proceso se interrumpe entre renames, la siguiente operación restaura o completa el estado antes de continuar.
 - Si una operación falla antes de confirmar el snapshot, no modifica el estado visible. Si falla durante la publicación, el repositorio restaura el snapshot anterior.
 - `sdd init` también prepara `.sdd/` fuera de la ruta final y la publica mediante rename, evitando una inicialización visible a medias.
+- `sdd archive` utiliza un stage, marker y backup propios. Si el destino archivado no llegó a publicarse, recovery restaura `active/`; si el destino válido existe, completa la limpieza de temporales.
 
 ## 13. Camino de implementación propuesto
 
 1. Crear las carpetas vacías, `config.yaml`, cinco workflows y sus plantillas mínimas.
 2. Publicar los cuatro JSON Schemas y tests de fixtures válidos/inválidos; esto fija el contrato antes de escribir la CLI.
-3. Implementar una CLI mínima: `init`, `start`, `status --json`, `next --json`, `begin`, `deliver`, `approve`, `reject`, `complete`, `validate` y `record-event`.
+3. Implementar una CLI mínima: `init`, `start`, `status --json`, `next --json`, `begin`, `deliver`, `approve`, `reject`, `complete`, `archive`, `validate` y `record-event`.
 4. Ejercitar manualmente cada workflow con work items de ejemplo, incluidos rechazo, input externo y un intento inválido de implementar sin plan aprobado.
 5. Recién entonces crear el adaptador inicial y sus capacidades; posteriormente, memoria semántica, CodeGraph, métricas avanzadas y automatización de archive.
 

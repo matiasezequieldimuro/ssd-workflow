@@ -187,10 +187,13 @@ func (item *WorkItem) ViolationsAgainst(workflow *Workflow) []ContractViolation 
 		}
 	}
 
-	if item.Status == WorkItemCompleted {
+	if item.Status == WorkItemCompleted || item.Status == WorkItemArchived {
 		for _, phase := range workflow.Phases {
 			state, exists := item.Phases[phase.ID]
 			if !exists {
+				continue
+			}
+			if item.Status == WorkItemCompleted && phase.Optional {
 				continue
 			}
 			if phase.Optional && (state.Status == PhaseBlocked || state.Status == PhaseReady || state.Status == PhaseNotApplicable) {
@@ -205,6 +208,18 @@ func (item *WorkItem) ViolationsAgainst(workflow *Workflow) []ContractViolation 
 					state.Status,
 				))
 			}
+		}
+	}
+	if item.Status == WorkItemArchived {
+		completed := *item
+		completed.Status = WorkItemCompleted
+		if err := completed.archiveEligibility(workflow); err != nil {
+			violations = append(violations, NewContractViolation(
+				"work_item.archive_invalid",
+				ErrInvalidWorkItem,
+				"%v",
+				err,
+			))
 		}
 	}
 

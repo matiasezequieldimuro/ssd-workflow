@@ -397,6 +397,51 @@ func TestRequiredPhaseCannotMutateAfterWorkItemCompletion(t *testing.T) {
 	}
 }
 
+func TestArchiveCompletedWorkItemWithSatisfiedArchivePhase(t *testing.T) {
+	workflow := workflowWithPhase("archive", domain.ApprovalNone, true)
+	item := workItemWithPhase("archive", domain.PhaseCompleted)
+	item.Status = domain.WorkItemCompleted
+
+	if err := item.Archive(workflow); err != nil {
+		t.Fatalf("Archive() error = %v", err)
+	}
+	if item.Status != domain.WorkItemArchived {
+		t.Fatalf("work item status = %s, want %s", item.Status, domain.WorkItemArchived)
+	}
+}
+
+func TestArchiveRejectsUnsatisfiedArchivePhase(t *testing.T) {
+	workflow := workflowWithPhase("archive", domain.ApprovalNone, true)
+	item := workItemWithPhase("archive", domain.PhaseReady)
+	item.Status = domain.WorkItemCompleted
+
+	if err := item.Archive(workflow); !errors.Is(err, domain.ErrWorkItemCannotArchive) {
+		t.Fatalf("Archive() error = %v, want %v", err, domain.ErrWorkItemCannotArchive)
+	}
+	if item.Status != domain.WorkItemCompleted {
+		t.Fatalf("work item status = %s, want %s", item.Status, domain.WorkItemCompleted)
+	}
+}
+
+func TestArchiveRejectsActiveWorkItem(t *testing.T) {
+	workflow := workflowWithPhase("archive", domain.ApprovalNone, true)
+	item := workItemWithPhase("archive", domain.PhaseCompleted)
+
+	if err := item.Archive(workflow); !errors.Is(err, domain.ErrWorkItemCannotArchive) {
+		t.Fatalf("Archive() error = %v, want %v", err, domain.ErrWorkItemCannotArchive)
+	}
+}
+
+func TestArchiveAllowsWorkflowWithoutArchivePhase(t *testing.T) {
+	workflow := workflowWithPhase("review", domain.ApprovalRequired, false)
+	item := workItemWithPhase("review", domain.PhaseApproved)
+	item.Status = domain.WorkItemCompleted
+
+	if err := item.Archive(workflow); err != nil {
+		t.Fatalf("Archive() error = %v", err)
+	}
+}
+
 func workflowWithPhase(id string, policy domain.ApprovalPolicy, optional bool) *domain.Workflow {
 	return &domain.Workflow{
 		Phases: []domain.WorkflowPhase{{

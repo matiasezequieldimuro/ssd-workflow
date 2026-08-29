@@ -1,6 +1,7 @@
 package usecases
 
 import (
+	"fmt"
 	"sort"
 
 	"sdd-cli/internal/domain"
@@ -33,6 +34,22 @@ type ValidateUseCase struct {
 	inspector ports.ValidationInspector
 }
 
+type ValidationFailure struct {
+	Report *ValidationReport
+}
+
+func (failure *ValidationFailure) Error() string {
+	return fmt.Sprintf("validation found %d error(s)", failure.Report.Summary.Failed)
+}
+
+func (failure *ValidationFailure) Unwrap() error {
+	return domain.ErrValidationFailed
+}
+
+func (failure *ValidationFailure) Details() interface{} {
+	return failure.Report
+}
+
 func NewValidateUseCase(inspector ports.ValidationInspector) *ValidateUseCase {
 	return &ValidateUseCase{inspector: inspector}
 }
@@ -60,6 +77,14 @@ func (uc *ValidateUseCase) Execute(baseDir, workItemID string) (*ValidationRepor
 		return nil, err
 	}
 
+	return buildValidationReport(scope, target, checks), nil
+}
+
+func buildValidationReport(
+	scope ValidationScope,
+	target string,
+	checks []domain.ValidationCheck,
+) *ValidationReport {
 	ordered := append([]domain.ValidationCheck(nil), checks...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].Target != ordered[j].Target {
@@ -95,5 +120,5 @@ func (uc *ValidateUseCase) Execute(baseDir, workItemID string) (*ValidationRepor
 		Valid:   summary.Failed == 0,
 		Summary: summary,
 		Checks:  ordered,
-	}, nil
+	}
 }

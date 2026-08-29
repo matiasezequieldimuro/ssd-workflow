@@ -582,17 +582,18 @@ Implementa:
 
 | Comando | Tipo | Funcion | Modifica estado | `--operation-id` |
 | --- | --- | --- | --- | --- |
-| `sdd-cli init` | Inicializacion | Instala `.sdd/` | Si | No |
-| `sdd-cli start` | Creacion | Crea un work item | Si | Si |
-| `sdd-cli status` | Consulta | Muestra manifest y fases | No | No |
-| `sdd-cli next` | Consulta | Informa la proxima accion | No | No |
-| `sdd-cli validate` | Diagnostico | Valida proyecto o work item activo | No | No |
-| `sdd-cli begin` | Transicion | Inicia una fase habilitada | Si | Si |
-| `sdd-cli deliver` | Transicion | Entrega el resultado de una fase | Si | Si |
-| `sdd-cli approve` | Gate humano | Aprueba una fase | Si | Si |
-| `sdd-cli reject` | Gate humano | Rechaza una fase para retrabajo | Si | Si |
-| `sdd-cli complete` | Transicion | Completa una fase o work item | Si | Si |
-| `sdd-cli record-event` | Observabilidad | Agrega un evento custom | Si | Si |
+| `sdd init` | Inicializacion | Instala `.sdd/` | Si | No |
+| `sdd start` | Creacion | Crea un work item | Si | Si |
+| `sdd status` | Consulta | Muestra manifest y fases | No | No |
+| `sdd next` | Consulta | Informa la proxima accion | No | No |
+| `sdd validate` | Diagnostico | Valida proyecto o work item activo/archivado | No | No |
+| `sdd begin` | Transicion | Inicia una fase habilitada | Si | Si |
+| `sdd deliver` | Transicion | Entrega el resultado de una fase | Si | Si |
+| `sdd approve` | Gate humano | Aprueba una fase | Si | Si |
+| `sdd reject` | Gate humano | Rechaza una fase para retrabajo | Si | Si |
+| `sdd complete` | Transicion | Completa una fase o work item | Si | Si |
+| `sdd archive` | Cierre | Publica un expediente archivado | Si | Si |
+| `sdd record-event` | Observabilidad | Agrega un evento custom | Si | Si |
 
 ### 12.3. `sdd-cli init`
 
@@ -675,6 +676,8 @@ sdd-cli status feat-add-coupons --json
 Devuelve:
 
 - estado general;
+- ubicación `active` o `archive`;
+- path archivado cuando corresponde;
 - workflow;
 - revision;
 - datos de input;
@@ -721,7 +724,7 @@ Scopes:
 
 | Invocacion | Alcance |
 | --- | --- |
-| Sin ID | Config, schemas, workflows, templates, procedures y work items activos |
+| Sin ID | Config, schemas, workflows, templates, procedures y work items activos/archivados |
 | Con ID | Manifest, workflow relacionado, approvals, artifacts, eventos y referencias |
 
 Cada check contiene:
@@ -859,9 +862,55 @@ El work item solo pasa a `completed` cuando:
 
 Los estados `approved` y `accepted` ya satisfacen dependencias y el cierre del work item. Por eso `complete --phase` no es obligatorio para avanzar: se utiliza cuando se quiere explicitar que una fase aprobada o aceptada ya fue aplicada y debe quedar en `completed`.
 
-Una fase opcional como `archive` puede ejecutarse despues de completar el work item, pero el comando actual no mueve el directorio a `work-items/archive/`.
+Una fase opcional como `archive` puede ejecutarse despues de completar el work item. `deliver --phase archive` cierra la fase declarativa; `sdd archive` realiza luego el movimiento físico.
 
-### 12.13. `sdd-cli record-event <id>`
+### 12.13. `sdd-cli archive <id>`
+
+```bash
+sdd-cli archive feat-add-coupons \
+  --actor-kind cli \
+  --actor-id sdd \
+  --operation-id run:feat-add-coupons:archive
+```
+
+Precondiciones:
+
+- work item global `completed`;
+- fase `archive` satisfecha cuando el workflow la declara;
+- reporte de `validate <id>` sin failures;
+- `artifacts/archive.md` válido;
+- destino fechado ausente.
+
+Resultado:
+
+```text
+.sdd/work-items/active/<id>
+    ->
+.sdd/work-items/archive/YYYY-MM-DD-<id>
+```
+
+El snapshot final contiene `status: archived`, una revisión adicional y un único
+`archive.completed`. El movimiento usa el mismo lock por ID y un protocolo
+específico de stage, marker, backup, rollback y recovery.
+
+El ID lógico no cambia. `status <id>` y `validate <id>` resuelven la ubicación
+archivada; `start <id>` no puede reutilizarlo. Los comandos mutantes sólo cargan
+activos, por lo que el expediente archivado queda inmutable.
+
+#### 12.13.1. Dos cierres complementarios
+
+La fase `archive` y el comando `archive` no son sinónimos:
+
+| Operación | Intención | Resultado |
+| --- | --- | --- |
+| `sdd-cli begin/deliver --phase archive` | Realizar y registrar el trabajo de cierre | La fase queda satisfecha y `artifacts/archive.md` conserva la evidencia |
+| `sdd-cli archive <id>` | Cerrar físicamente un expediente ya válido | El snapshot pasa de `active/` a `archive/YYYY-MM-DD-<id>/` y queda inmutable |
+
+La primera no mueve directorios. La segunda no redacta evidencia ni completa
+fases automáticamente. Mantener ambas intenciones separadas evita que un agente
+archive un expediente cuya consolidación todavía no fue documentada.
+
+### 12.14. `sdd-cli record-event <id>`
 
 ```bash
 sdd-cli record-event feat-add-coupons \
@@ -878,9 +927,9 @@ Agrega un evento custom sin alterar fases. Aun asi:
 - valida actor y schema;
 - puede ser idempotente mediante `--operation-id`.
 
-### 12.14. Funcionalidades modeladas pero no expuestas
-<!-- TODO: Revisar si no ha sido implementado -->
-Tambien existen estados `archived` y `cancelled`, pero no hay comandos publicos que los apliquen.
+### 12.15. Funcionalidades modeladas pero no expuestas
+
+El estado `cancelled` permanece modelado pero no tiene comando público.
 
 ---
 
@@ -958,11 +1007,11 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> active: start
     active --> completed: complete
-    completed --> archived: pendiente de comando archive
+    completed --> archived: archive
     active --> cancelled: pendiente de comando cancel
 ```
 
-Actualmente la superficie publica implementa `active -> completed`. Los otros estados existen en el modelo, pero no tienen comando.
+Actualmente la superficie publica implementa `active -> completed -> archived`. `cancelled` permanece sin comando.
 
 ### 14.3. Diferencia entre `approved` y `completed`
 
@@ -1332,7 +1381,27 @@ flowchart TD
 - La siguiente lectura recupera un backup si detecta una interrupcion entre renames.
 - Los symlinks y archivos no regulares no se copian dentro del snapshot.
 
-### 21.3. Revision optimista
+### 21.3. Movimiento transaccional a archive
+
+Archive utiliza paths internos independientes:
+
+```text
+.transactions/<id>.archive-stage/
+.transactions/<id>.archive-backup/
+.transactions/<id>.archive.json
+```
+
+El adapter construye y valida el snapshot final, retira `active/<id>` hacia el
+backup y publica el stage directamente en `archive/YYYY-MM-DD-<id>`. La aparición
+del destino válido es el punto de commit.
+
+Recovery aplica una regla conservadora:
+
+- destino ausente: restaura el backup a active;
+- destino válido presente: conserva archive y limpia internos;
+- active y archive simultáneos: reporta `archive_conflict` sin borrar evidencia.
+
+### 21.4. Revision optimista
 
 Cada manifest posee:
 
@@ -1930,7 +1999,7 @@ Manifest, artifacts y eventos no son stores independientes desde la perspectiva 
 
 ### 33.5. Consultas puras
 
-`status`, `next` y `validate` no mutan estado. `validate` tampoco recupera transacciones interrumpidas: diagnostica el snapshot visible. La accion explicita se realiza con `begin`, `deliver`, `approve`, `reject` o `complete`.
+`status`, `next` y `validate` no mutan estado. `validate` tampoco recupera transacciones interrumpidas: diagnostica el snapshot visible. La accion explicita se realiza con `begin`, `deliver`, `approve`, `reject`, `complete` o `archive`.
 
 ### 33.6. Contrato local
 
@@ -1942,50 +2011,35 @@ Luego de `init`, el proyecto controla sus workflows y templates locales. El bina
 
 ### 34.1. Pendiente de alta prioridad
 
-| Capacidad | Estado |
+| Capacidad | Alcance propuesto |
 | --- | --- |
-| Integracion con agente orquestador | No implementada |
-| Pruebas reales del harness completo | Pendientes |
+| **Retrabajo semántico e invalidación transitoria** | Diseñar una operación explícita, propuesta como `sdd-cli rework <id> --phase <id> --reason ...`. Debe reabrir la fase que requiere corrección, marcar `superseded` únicamente a sus descendientes afectados en el DAG, preservar artifacts y approvals como historial, registrar las transiciones y bloquear el avance hasta completar nuevamente la cadena. Si el work item estaba `completed`, debe volver a `active`; un expediente `archived` no se reabre y debe originar un work item nuevo vinculado. |
+| **Cancelación explícita** | Diseñar `sdd-cli cancel <id> --reason ...` con actor autorizado, motivo obligatorio, evento de auditoría e invariantes de cierre. Debe decidirse expresamente la ubicación física de un work item cancelado y su relación con archive; no se debe reutilizar `archived` como sustituto de `cancelled`. |
+| **Primer adapter de agente** | Implementar un adapter inicial para Claude Code o GitHub Copilot. Debe aportar instrucciones, skills y hooks para consultar `status`/`next` e invocar comandos SDD, pero nunca duplicar la máquina de estados ni mutar manifests directamente. |
+| **Pruebas reales del harness** | Ejecutar un workflow completo sobre un proyecto real usando el adapter elegido, para comprobar ergonomía, contexto entregado al agente, recuperabilidad e intervención humana en gates. |
 
-### 34.2. Pendiente de prioridad media
+### 34.2. Capacidades de motor posteriores
 
-| Capacidad | Estado |
+| Capacidad | Alcance propuesto |
 | --- | --- |
-| `sdd archive` | Fase declarativa existente, movimiento fisico ausente |
-| Consolidacion de specs baseline | Procedimiento futuro |
-| Autorizacion de efectos externos | Fuera del motor actual |
-| Calculo automatico de estado `superseded` | No implementado (las fases no se invalidan hacia atras al modificar ancestros) |
-| Mecanismo de retroceso o rollback de fases | No implementado (no se pueden descompletar fases o reabrir work items completados via CLI) |
+| **Consolidación de baseline specs y changelog** | Convertir la evidencia de `archive.md` en una operación guiada o autorizada que consolide deltas de especificación. No debe intentar merges semánticos automáticos sin revisión. |
+| **Autorización de efectos externos** | Modelar políticas y eventos para commit, push, PR, tickets, despliegues o escritura de changelog. El workflow sólo declara efectos potenciales; un adapter/policy debe autorizar cada efecto de forma explícita. |
+| **MCPs y política de herramientas** | Crear un catálogo portable de MCPs/herramientas permitidas por proyecto, fase y agente. Debe declarar permisos, límites y evidencia requerida, sin acoplar el contrato central a un proveedor específico. |
+| **Observabilidad de tokens y costos** | Normalizar en eventos el proveedor, modelo, tokens de input/output/cache, duración y costo cuando estén disponibles; generar agregados opcionales sin registrar secretos ni prompts completos. |
 
-### 34.3. Pendiente posterior
+### 34.3. Evolución del ecosistema
 
-- Engram;
-- CodeGraph;
-- observabilidad avanzada de tokens;
-- adapters especificos por agente;
-- catalogo de skills y permisos;
-- integraciones GitHub/Azure DevOps.
+- adapters específicos para otros agentes, reutilizando el mismo contrato;
+- catálogo de skills y permisos por plataforma;
+- memoria episódica/semántica con Engram;
+- navegación y recuperación de relaciones de código con CodeGraph;
+- integraciones con GitHub, Azure DevOps u otros proveedores;
+- presupuestos, límites y reportes avanzados de consumo;
+- índices de búsqueda de expedientes y conocimiento consolidado.
 
-### 34.4. Distincion importante sobre archive
-
-Hoy pueden coexistir estas dos ideas:
-
-1. una fase `archive` dentro del workflow;
-2. el directorio `.sdd/work-items/archive/`.
-
-La primera esta implementada como fase opcional y artifact. La segunda todavia no recibe el work item mediante un comando.
-
-Completar `archive` hoy **no mueve**:
-
-```text
-work-items/active/<id>
-```
-
-hacia:
-
-```text
-work-items/archive/<fecha>-<id>
-```
+El orden no es accidental: primero hay que cerrar las reglas de retrabajo y
+cancelación del motor; después validar un adapter con uso real; recién entonces
+conviene invertir en integraciones, memoria o automatización adicional.
 
 ---
 
@@ -2067,7 +2121,7 @@ Antes de implementar un comando nuevo:
   2. **Orquestación:** Evaluar y priorizar cuál es la fase siguiente a ejecutar al invocar `sdd-cli next`.
 
 ### 38.4. ¿Qué ocurre con la completitud de fases si quiero volver atrás?
-* **Comportamiento:** La CLI actual está diseñada para ser lineal y progresiva. No existe un comando público (como `sdd-cli reject` o `sdd-cli rollback`) para "descompletar" fases ya finalizadas.
+* **Comportamiento:** La CLI actual está diseñada para ser lineal y progresiva. No existe un comando público (como `sdd-cli rollback`) para "descompletar" fases ya finalizadas.
 * **Resolución:** Si necesitas retroceder a una fase anterior para corregirla, en la v0.1 debes:
   1. Modificar manualmente el archivo `manifest.yaml` para revertir el estado de la fase (ej: a `in_progress` o `superseded`).
   2. O bien, utilizar el control de versiones de Git (`git checkout` o revertir cambios locales no commiteados) para restaurar el manifest a un punto anterior.

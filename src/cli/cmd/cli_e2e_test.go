@@ -117,6 +117,100 @@ func TestCLICompletesFastChangeLifecycle(t *testing.T) {
 		t.Fatalf("final work item status = %v, want completed", got)
 	}
 	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "validate", "cli-contract")
+
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "begin", "cli-contract", "--phase", "archive", "--operation-id", "cli:begin:archive")
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "deliver", "cli-contract", "--phase", "archive", "--operation-id", "cli:deliver:archive")
+	archived := runJSONBinary(
+		t,
+		binary,
+		0,
+		"--json", "--dir", projectDir,
+		"archive", "cli-contract",
+		"--operation-id", "cli:archive",
+	)
+	archiveData := responseData(t, archived)
+	if archiveData["location"] != "archive" {
+		t.Fatalf("archive data = %#v", archiveData)
+	}
+	archivePath, ok := archiveData["archive_path"].(string)
+	if !ok || !strings.Contains(archivePath, "work-items/archive/") {
+		t.Fatalf("archive path = %#v", archiveData["archive_path"])
+	}
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Fatalf("active manifest still exists: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, filepath.FromSlash(archivePath), "manifest.yaml")); err != nil {
+		t.Fatalf("archived manifest missing: %v", err)
+	}
+
+	archivedStatus := runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "status", "cli-contract")
+	archivedStatusData := responseData(t, archivedStatus)
+	if archivedStatusData["status"] != "archived" ||
+		archivedStatusData["location"] != "archive" ||
+		archivedStatusData["archive_path"] != archivePath {
+		t.Fatalf("archived status = %#v", archivedStatusData)
+	}
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "validate", "cli-contract")
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "validate")
+
+	archivedManifestPath := filepath.Join(projectDir, filepath.FromSlash(archivePath), "manifest.yaml")
+	beforeRetry, err := os.ReadFile(archivedManifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile() before archive retry error = %v", err)
+	}
+	retried := runJSONBinary(
+		t,
+		binary,
+		0,
+		"--json", "--dir", projectDir,
+		"archive", "cli-contract",
+		"--operation-id", "cli:archive",
+	)
+	if responseData(t, retried)["archive_path"] != archivePath {
+		t.Fatalf("retried archive = %#v", responseData(t, retried))
+	}
+	afterRetry, err := os.ReadFile(archivedManifestPath)
+	if err != nil {
+		t.Fatalf("ReadFile() after archive retry error = %v", err)
+	}
+	if !bytes.Equal(beforeRetry, afterRetry) {
+		t.Fatal("archive retry changed archived manifest")
+	}
+	alreadyArchived := runJSONBinary(
+		t,
+		binary,
+		1,
+		"--json", "--dir", projectDir,
+		"archive", "cli-contract",
+		"--operation-id", "cli:archive:other",
+	)
+	if alreadyArchived.Error == nil || alreadyArchived.Error.Code != "already_archived" {
+		t.Fatalf("already archived response = %#v", alreadyArchived)
+	}
+	reused := runJSONBinary(
+		t,
+		binary,
+		1,
+		"--json", "--dir", projectDir,
+		"start", "cli-contract",
+		"--workflow", "fast-change",
+		"--title", "Reused archived ID",
+	)
+	if reused.Error == nil || reused.Error.Code != "already_exists" {
+		t.Fatalf("reused archived ID response = %#v", reused)
+	}
+	immutable := runJSONBinary(
+		t,
+		binary,
+		1,
+		"--json", "--dir", projectDir,
+		"record-event", "cli-contract",
+		"--type", "archive.mutated",
+		"--message", "must not be recorded",
+	)
+	if immutable.Error == nil || immutable.Error.Code != "not_found" {
+		t.Fatalf("archived mutation response = %#v", immutable)
+	}
 }
 
 func TestCLIValidateReportsMultipleFailuresWithoutMutation(t *testing.T) {
