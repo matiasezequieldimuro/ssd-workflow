@@ -34,7 +34,7 @@ Cuando existe una diferencia entre una idea historica y el comportamiento actual
 
 ## 2. Resumen ejecutivo
 
-La CLI `sdd` es el **motor determinista** del framework de Spec-Driven Development.
+La CLI `sdd-cli` es el **motor determinista** del framework de Spec-Driven Development.
 
 Su responsabilidad no es redactar documentos, programar una feature ni decidir que modelo de IA usar. Su responsabilidad es gobernar el proceso:
 
@@ -58,10 +58,10 @@ Ejemplo:
 
 ```text
 El agente redacta el plan.
-El agente ejecuta `sdd deliver ... --phase plan`.
+El agente ejecuta `sdd-cli deliver ... --phase plan`.
 La CLI verifica que `plan` estaba en progreso.
 La CLI lo deja esperando aprobacion.
-Una persona ejecuta `sdd approve ... --phase plan`.
+Una persona ejecuta `sdd-cli approve ... --phase plan`.
 La CLI registra la aprobacion y desbloquea `implementation`.
 ```
 
@@ -112,7 +112,7 @@ Los campos `procedure` y `effects` del workflow describen que debe hacerse, pero
 | **Evento** | Registro inmutable de una accion o transicion. | `phase.transitioned` |
 | **Gate** | Decision requerida antes de continuar. | Aprobacion humana del plan |
 | **Entry point** | Fase desde la cual el workflow permite comenzar. | `prd`, `specification`, `plan` |
-| **Procedure** | Instruccion portable para producir el resultado de una fase. | `procedures/create-plan.md` |
+| **Procedure** | Instrucción portable o habilidad (skill) que guía sobre cómo realizar una acción, investigación o documentación en el workflow. | `procedures/create-plan.md` |
 | **Operation ID** | Clave estable usada para reintentar una mutacion sin duplicarla. | `run:plan:deliver:001` |
 | **Actor** | Identidad que ejecuta una operacion. | `{kind: agent, id: copilot}` |
 
@@ -139,14 +139,14 @@ El estado no se deduce leyendo el chat ni buscando checkboxes dentro de Markdown
 
 ## 5. Por que se utiliza Go
 
-Go es una buena eleccion para este motor porque combina distribucion simple, tipos estaticos, tooling estandar y un modelo de concurrencia adecuado para una CLI portable.
+La elección de Go para el motor de la CLI responde a eliminar la fricción de distribución y entorno que sufren otras tecnologías. En lugar de obligar al usuario (o al agente) a lidiar con instalaciones de Node.js/Python, resolver conflictos de `node_modules` o configurar entornos virtuales (`venv`), Go compila a un **binario nativo único y estático**. Esto garantiza un arranque instantáneo (sin tiempo de carga de máquinas virtuales) y una portabilidad absoluta en cualquier sistema operativo simplemente copiando el archivo, manteniendo el motor ligero, determinista y autocontenido.
 
 ### 5.1. Justificacion tecnica
 
 | Necesidad del motor | Aporte de Go |
 | --- | --- |
-| Distribuir la herramienta entre proyectos | Genera un binario autocontenido por plataforma |
-| Ser agent-agnostic | No requiere runtime de Node.js, JVM ni un agente especifico |
+| Distribuir la herramienta de forma portable | Genera un binario autocontenido por plataforma (platform-agnostic) |
+| Ser agent-agnostic / framework-agnostic | Se logra por diseño de arquitectura (intercambio de archivos), mientras que Go simplifica la ejecución directa de este diseño sin dependencias |
 | Mantener reglas deterministas | Tipos estaticos y compilacion previa |
 | Operar sobre filesystem | Libreria estandar madura y multiplataforma |
 | Probar dependencias externas | Interfaces implicitas y composicion simple |
@@ -308,7 +308,7 @@ src/cli/
 
 ### 8.3. Estructura instalada en un proyecto usuario
 
-Luego de `sdd init`:
+Luego de `sdd-cli init`:
 
 ```text
 mi-proyecto/
@@ -347,18 +347,18 @@ Los fixtures contractuales de `tests/` no se instalan en el proyecto usuario.
 
 ## 9. Recursos embebidos e inicializacion
 
-El binario debe poder ejecutar `sdd init` sin depender de la ubicacion del repositorio original. Para eso utiliza `go:embed`.
+El binario debe poder ejecutar `sdd-cli init` sin depender de la ubicacion del repositorio original. Para eso utiliza `go:embed`.
 
 ```mermaid
 flowchart LR
     Contract["src/.sdd/<br/>Fuente versionada"]
     Generate["go generate<br/>tools/syncsdd"]
     Generated["src/cli/embeds/default_sdd/<br/>Generado, no versionado"]
-    Binary["Binario sdd<br/>go:embed"]
+    Binary["Binario sdd-cli<br/>go:embed"]
     Project["Proyecto destino<br/>.sdd/"]
 
     Contract --> Generate --> Generated --> Binary
-    Binary -->|"sdd init"| Project
+    Binary -->|"sdd-cli init"| Project
 ```
 
 Puntos importantes:
@@ -367,7 +367,7 @@ Puntos importantes:
 - `src/cli/embeds/default_sdd/` es generado y esta en `.gitignore`.
 - `generate.go` declara `//go:generate go run tools/syncsdd/main.go`.
 - `embeds/embeds.go` incluye el directorio generado con `//go:embed`.
-- `sdd init` publica la copia embebida en el proyecto destino.
+- `sdd-cli init` publica la copia embebida en el proyecto destino.
 
 En un checkout limpio debe sincronizarse el embed antes de compilar:
 
@@ -582,23 +582,23 @@ Implementa:
 
 | Comando | Tipo | Funcion | Modifica estado | `--operation-id` |
 | --- | --- | --- | --- | --- |
-| `sdd init` | Inicializacion | Instala `.sdd/` | Si | No |
-| `sdd start` | Creacion | Crea un work item | Si | Si |
-| `sdd status` | Consulta | Muestra manifest y fases | No | No |
-| `sdd next` | Consulta | Informa la proxima accion | No | No |
-| `sdd validate` | Diagnostico | Valida proyecto o work item activo | No | No |
-| `sdd begin` | Transicion | Inicia una fase habilitada | Si | Si |
-| `sdd deliver` | Transicion | Entrega el resultado de una fase | Si | Si |
-| `sdd approve` | Gate humano | Aprueba una fase | Si | Si |
-| `sdd reject` | Gate humano | Rechaza una fase para retrabajo | Si | Si |
-| `sdd complete` | Transicion | Completa una fase o work item | Si | Si |
-| `sdd record-event` | Observabilidad | Agrega un evento custom | Si | Si |
+| `sdd-cli init` | Inicializacion | Instala `.sdd/` | Si | No |
+| `sdd-cli start` | Creacion | Crea un work item | Si | Si |
+| `sdd-cli status` | Consulta | Muestra manifest y fases | No | No |
+| `sdd-cli next` | Consulta | Informa la proxima accion | No | No |
+| `sdd-cli validate` | Diagnostico | Valida proyecto o work item activo | No | No |
+| `sdd-cli begin` | Transicion | Inicia una fase habilitada | Si | Si |
+| `sdd-cli deliver` | Transicion | Entrega el resultado de una fase | Si | Si |
+| `sdd-cli approve` | Gate humano | Aprueba una fase | Si | Si |
+| `sdd-cli reject` | Gate humano | Rechaza una fase para retrabajo | Si | Si |
+| `sdd-cli complete` | Transicion | Completa una fase o work item | Si | Si |
+| `sdd-cli record-event` | Observabilidad | Agrega un evento custom | Si | Si |
 
-### 12.3. `sdd init`
+### 12.3. `sdd-cli init`
 
 ```bash
-sdd init
-sdd init --dir /ruta/al/proyecto
+sdd-cli init
+sdd-cli init --dir /ruta/al/proyecto
 ```
 
 Comportamiento:
@@ -612,12 +612,12 @@ Comportamiento:
 
 No inicializa Git ni sobrescribe una instalacion existente.
 
-### 12.4. `sdd start <id>`
+### 12.4. `sdd-cli start <id>`
 
 Inicio normal:
 
 ```bash
-sdd start feat-add-coupons \
+sdd-cli start feat-add-coupons \
   --title "Agregar cupones" \
   --summary "Permitir descuentos en checkout"
 ```
@@ -625,7 +625,7 @@ sdd start feat-add-coupons \
 Inicio con workflow explicito:
 
 ```bash
-sdd start bug-payment-timeout \
+sdd-cli start bug-payment-timeout \
   --workflow bug-investigation \
   --title "Timeout de pago"
 ```
@@ -633,7 +633,7 @@ sdd start bug-payment-timeout \
 Inicio desde artifact existente:
 
 ```bash
-sdd start feat-add-coupons \
+sdd-cli start feat-add-coupons \
   --title "Agregar cupones" \
   --from-artifact ./plan-aprobado.md \
   --phase plan
@@ -665,11 +665,11 @@ No existe un skip arbitrario de fases.
 
 En un inicio normal, la fase de entrada aceptada para `user_prompt` se crea y comienza automaticamente en `in_progress`. No es necesario ejecutar `begin` para esa primera fase.
 
-### 12.5. `sdd status <id>`
+### 12.5. `sdd-cli status <id>`
 
 ```bash
-sdd status feat-add-coupons
-sdd status feat-add-coupons --json
+sdd-cli status feat-add-coupons
+sdd-cli status feat-add-coupons --json
 ```
 
 Devuelve:
@@ -685,10 +685,10 @@ La salida de texto presenta las fases en orden topologico. La salida JSON conser
 
 Es una consulta pura.
 
-### 12.6. `sdd next <id>`
+### 12.6. `sdd-cli next <id>`
 
 ```bash
-sdd next feat-add-coupons
+sdd-cli next feat-add-coupons
 ```
 
 Prioriza:
@@ -709,12 +709,12 @@ Devuelve:
 
 `next` **no inicia la fase** y no aumenta la revision.
 
-### 12.7. `sdd validate [id]`
+### 12.7. `sdd-cli validate [id]`
 
 ```bash
-sdd validate
-sdd validate feat-add-coupons
-sdd validate feat-add-coupons --json
+sdd-cli validate
+sdd-cli validate feat-add-coupons
+sdd-cli validate feat-add-coupons --json
 ```
 
 Scopes:
@@ -748,10 +748,10 @@ La fuente externa de un input puede no existir despues de clonar el proyecto en
 otra maquina: en ese caso se informa warning. Si existe, debe ser regular y
 conservar el SHA-256 registrado.
 
-### 12.8. `sdd begin <id>`
+### 12.8. `sdd-cli begin <id>`
 
 ```bash
-sdd begin feat-add-coupons \
+sdd-cli begin feat-add-coupons \
   --phase specification \
   --actor-kind agent \
   --actor-id copilot
@@ -765,10 +765,10 @@ ready | rejected | superseded -> in_progress
 
 Una fase `blocked` no puede comenzar.
 
-### 12.9. `sdd deliver <id>`
+### 12.9. `sdd-cli deliver <id>`
 
 ```bash
-sdd deliver feat-add-coupons \
+sdd-cli deliver feat-add-coupons \
   --phase specification \
   --actor-id copilot
 ```
@@ -785,10 +785,10 @@ El destino depende de la politica:
 
 Al satisfacerse dependencias, la CLI desbloquea fases y prepara sus templates dentro del mismo commit.
 
-### 12.10. `sdd approve <id>`
+### 12.10. `sdd-cli approve <id>`
 
 ```bash
-sdd approve feat-add-coupons \
+sdd-cli approve feat-add-coupons \
   --phase plan \
   --by matias \
   --comment "Aprobado"
@@ -805,10 +805,10 @@ Reglas:
 
 La exigencia de actor humano vive en dominio, no solamente en Cobra.
 
-### 12.11. `sdd reject <id>`
+### 12.11. `sdd-cli reject <id>`
 
 ```bash
-sdd reject feat-add-coupons \
+sdd-cli reject feat-add-coupons \
   --phase plan \
   --by matias \
   --comment "Falta detallar el rollback"
@@ -826,17 +826,17 @@ Reglas:
 El retrabajo comienza explícitamente con:
 
 ```bash
-sdd begin feat-add-coupons --phase plan
+sdd-cli begin feat-add-coupons --phase plan
 ```
 
 La nueva entrega crea otra iteracion de approval sin borrar el rechazo anterior.
 
-### 12.12. `sdd complete <id>`
+### 12.12. `sdd-cli complete <id>`
 
 Completar fase:
 
 ```bash
-sdd complete feat-add-coupons --phase plan
+sdd-cli complete feat-add-coupons --phase plan
 ```
 
 Permite:
@@ -848,7 +848,7 @@ approved | accepted -> completed
 Completar work item:
 
 ```bash
-sdd complete feat-add-coupons
+sdd-cli complete feat-add-coupons
 ```
 
 El work item solo pasa a `completed` cuando:
@@ -861,10 +861,10 @@ Los estados `approved` y `accepted` ya satisfacen dependencias y el cierre del w
 
 Una fase opcional como `archive` puede ejecutarse despues de completar el work item, pero el comando actual no mueve el directorio a `work-items/archive/`.
 
-### 12.13. `sdd record-event <id>`
+### 12.13. `sdd-cli record-event <id>`
 
 ```bash
-sdd record-event feat-add-coupons \
+sdd-cli record-event feat-add-coupons \
   --type validation.completed \
   --message "Suite verde" \
   --actor-kind agent \
@@ -879,7 +879,7 @@ Agrega un evento custom sin alterar fases. Aun asi:
 - puede ser idempotente mediante `--operation-id`.
 
 ### 12.14. Funcionalidades modeladas pero no expuestas
-
+<!-- TODO: Revisar si no ha sido implementado -->
 Tambien existen estados `archived` y `cancelled`, pero no hay comandos publicos que los apliquen.
 
 ---
@@ -1124,7 +1124,7 @@ Este diseño mantiene `main.go` libre de logica y hace visible el wiring product
 
 ---
 
-## 18. Recorrido de codigo: `sdd start`
+## 18. Recorrido de codigo: `sdd-cli start`
 
 `start` es uno de los recorridos mas completos porque crea el agregado, resuelve configuracion, prepara artifacts y emite varios eventos.
 
@@ -1142,7 +1142,7 @@ sequenceDiagram
     participant Repo as WorkItemRepository
     participant Disk as .sdd/work-items
 
-    Caller->>Cmd: sdd start feat-x --title ...
+    Caller->>Cmd: sdd-cli start feat-x --title ...
     Cmd->>UC: Execute(baseDir, input)
     UC->>UC: valida ID, actor y operation ID
     UC->>Repo: WorkItemExists(id)
@@ -1274,7 +1274,7 @@ sequenceDiagram
     participant Repo
     participant Domain as WorkItem.NextPhase
 
-    Caller->>Cmd: sdd next feat-x
+    Caller->>Cmd: sdd-cli next feat-x
     Cmd->>UC: Execute()
     UC->>Repo: GetWorkItem()
     UC->>Repo: GetWorkflow()
@@ -1790,17 +1790,38 @@ La prueba de lifecycle descubre automaticamente todos los `*.workflow.yaml`. Agr
 ```bash
 cd src/cli
 go generate ./...
-go build -o sdd .
+go build -o sdd-cli .
 ```
 
 No commitear:
 
 ```text
-src/cli/sdd
+src/cli/sdd-cli
 src/cli/embeds/default_sdd/
 ```
 
-### 31.2. Ejecutar tests
+### 31.2. Instalación global en el sistema
+
+Para utilizar la CLI de forma global (escribiendo simplemente `sdd-cli` desde cualquier directorio de tu terminal), sigue estos pasos:
+
+1. **Configurar el PATH**: Asegúrate de tener el directorio binario de Go en tu variable de entorno. En macOS/Zsh, añade la siguiente línea a tu archivo `~/.zshrc` (si no existe el archivo, créalo con `touch ~/.zshrc`):
+   ```bash
+   export PATH=$PATH:$(go env GOPATH)/bin
+   ```
+   Aplica los cambios en tu sesión actual:
+   ```bash
+   source ~/.zshrc
+   ```
+
+2. **Compilar e instalar**: Ejecuta los siguientes comandos desde la carpeta `src/cli/` del proyecto:
+   ```bash
+   go generate ./...
+   go install
+   ```
+
+El binario compilado quedará instalado bajo el nombre nativo `sdd-cli` directamente en tu `$GOPATH/bin`, listo para ser ejecutado desde cualquier ubicación.
+
+### 31.3. Ejecutar tests
 
 ```bash
 cd src/cli
@@ -1809,7 +1830,7 @@ go test -race ./...
 go vet ./...
 ```
 
-### 31.3. Formato
+### 31.4. Formato
 
 ```bash
 gofmt -w .
@@ -1817,16 +1838,16 @@ gofmt -w .
 
 `gofmt` es el formateador canonico de Go. No se discute estilo de espacios o llaves como en otros ecosistemas: el toolchain impone el formato.
 
-### 31.4. Probar contra otro proyecto
+### 31.5. Probar contra otro proyecto
 
 ```bash
-./sdd init --dir /tmp/my-project
+./sdd-cli init --dir /tmp/my-project
 
-./sdd start feat-example \
+./sdd-cli start feat-example \
   --dir /tmp/my-project \
   --title "Ejemplo"
 
-./sdd status feat-example \
+./sdd-cli status feat-example \
   --dir /tmp/my-project
 ```
 
@@ -1835,7 +1856,7 @@ gofmt -w .
 ## 32. Ejemplo completo: `fast-change`
 
 ```bash
-SDD=./sdd
+SDD=./sdd-cli
 PROJECT=/tmp/example-project
 
 $SDD init --dir "$PROJECT"
@@ -1933,6 +1954,8 @@ Luego de `init`, el proyecto controla sus workflows y templates locales. El bina
 | `sdd archive` | Fase declarativa existente, movimiento fisico ausente |
 | Consolidacion de specs baseline | Procedimiento futuro |
 | Autorizacion de efectos externos | Fuera del motor actual |
+| Calculo automatico de estado `superseded` | No implementado (las fases no se invalidan hacia atras al modificar ancestros) |
+| Mecanismo de retroceso o rollback de fases | No implementado (no se pueden descompletar fases o reabrir work items completados via CLI) |
 
 ### 34.3. Pendiente posterior
 
@@ -2023,7 +2046,109 @@ Antes de implementar un comando nuevo:
 
 ---
 
-## 38. Conclusiones
+## 38. Preguntas frecuentes (FAQ)
+
+### 38.1. ¿Qué es un DAG y qué rol cumple en este proyecto?
+* **Concepto:** Un Grafo Acíclico Dirigido (DAG) es una estructura de datos jerárquica de nodos conectados por aristas con dirección donde no existen bucles ni ciclos (es imposible volver al punto de partida siguiendo las flechas).
+* **Rol en el proyecto:** Las fases de un workflow de desarrollo se modelan y validan como un DAG, donde los nodos son las fases y las dependencias (`requires`) son las aristas. Esto le permite al motor:
+  1. Validar semánticamente que no existan dependencias circulares (ej. A requiere B y B requiere A).
+  2. Determinar de manera dinámica qué fases están listas (`ready`) para ejecutarse en base a qué dependencias previas ya fueron satisfechas.
+  3. Soportar en el futuro workflows no lineales con ramas paralelas de ejecución.
+
+### 38.2. ¿Qué es el estado `superseded`? ¿Cómo se adopta y en qué momento?
+* **Concepto:** Es el estado que indica que el contenido o artefacto producido por una fase ya no es válido ("superado") porque una de las fases previas que servían de insumo fue modificada.
+* **Casuística:** Si a mitad de la fase de `implementation` necesitas corregir algo del diseño y vuelves atrás a modificar el `plan`, la fase de implementación y sus sucesoras en el grafo quedan desactualizadas. En ese momento, deberían pasar a estar `superseded`.
+* **Estado actual:** El dominio soporta la constante `PhaseSuperseded` y permite la transición de vuelta a progreso (`superseded -> in_progress` usando `sdd-cli begin`). Sin embargo, en la versión v0.1 actual, el motor no realiza transiciones automáticas a `superseded` hacia atrás por comandos. Hoy en día, forzar este estado requiere la edición manual del `manifest.yaml` o intervención del orquestador.
+
+### 38.3. ¿Qué es el ordenamiento topológico y para qué se usa?
+* **Concepto:** Es un algoritmo para ordenar linealmente los nodos de un DAG de manera que para cualquier dependencia `A -> B`, el nodo `A` aparezca siempre antes que `B` en la lista resultante.
+* **Uso en el proyecto:** Se implementa mediante el método `OrderedPhases` (usando el algoritmo de Kahn) y se usa para:
+  1. **Visualización:** Ordenar las fases topológicamente al ejecutar `sdd-cli status`, ya que en el manifest YAML se guardan como un mapa sin orden garantizado.
+  2. **Orquestación:** Evaluar y priorizar cuál es la fase siguiente a ejecutar al invocar `sdd-cli next`.
+
+### 38.4. ¿Qué ocurre con la completitud de fases si quiero volver atrás?
+* **Comportamiento:** La CLI actual está diseñada para ser lineal y progresiva. No existe un comando público (como `sdd-cli reject` o `sdd-cli rollback`) para "descompletar" fases ya finalizadas.
+* **Resolución:** Si necesitas retroceder a una fase anterior para corregirla, en la v0.1 debes:
+  1. Modificar manualmente el archivo `manifest.yaml` para revertir el estado de la fase (ej: a `in_progress` o `superseded`).
+  2. O bien, utilizar el control de versiones de Git (`git checkout` o revertir cambios locales no commiteados) para restaurar el manifest a un punto anterior.
+
+### 38.5. ¿Qué ocurre si intento volver atrás en un work item `completed` o `archived`?
+* **Comportamiento:** El dominio de la CLI bloquea de forma estricta cualquier cambio de fase si el estado general del work item es `completed` o `archived` (excepto para fases marcadas como opcionales en el workflow).
+* **Resolución:** Para forzar una modificación o retroceso, es necesario editar a mano el archivo `manifest.yaml` para cambiar el estado general del work item de vuelta a `active` y ajustar las fases correspondientes, o bien revertir los archivos mediante Git.
+
+### 38.6. ¿Qué es el `WorkItemCommit` y qué función cumple?
+* **Concepto:** Es la estructura intermedia que agrupa el `WorkItem` (estado general), los `Artifacts` (archivos Markdown generados) y los `Events` (historial de auditoría), junto con el `operation_id`.
+* **Función:** Actúa como la **unidad transaccional de persistencia**. El repositorio de infraestructura la utiliza para garantizar la atomicidad en el filesystem ("todo o nada"), asegurando que nunca quede el manifest modificado si los eventos o artefactos correspondientes no pudieron guardarse físicamente en el disco.
+
+### 38.7. ¿Para qué se usa Path Absoluto + SHA-256?
+* **Uso:** Al inicializar un work item desde un artefacto externo con la flag `--from-artifact`.
+* **Propósito:**
+  * El **Path Absoluto** identifica de forma unívoca la ubicación del archivo de origen en el disco.
+  * El **SHA-256** congela una huella digital inmutable de su contenido. Si el archivo se modifica externamente en el futuro, el hash no coincidirá, sirviendo como auditoría e integridad de que el flujo se inició exactamente con esa especificación.
+
+### 38.8. ¿Qué es la persistencia transaccional y cómo funciona el algoritmo?
+* **Concepto:** Es simular la atomicidad transaccional de una base de datos directamente sobre el filesystem del sistema operativo.
+* **Algoritmo paso a paso:**
+  1. **Lock**: Se toma un bloqueo exclusivo sobre el archivo `.locks/<id>.lock`.
+  2. **Recovery**: Se limpia cualquier residuo de transacciones previas interrumpidas.
+  3. **Checks**: Se verifica la idempotencia (`operation_id`) y la revisión optimista.
+  4. **Staging**: Se crea un directorio temporal `.tmp` y se copia el snapshot completo del item actual.
+  5. **Write**: Se escriben los nuevos datos, artifacts y eventos al `.tmp`.
+  6. **Fsync**: Se fuerza la escritura física de todos los archivos y carpetas en disco.
+  7. **Rename Backup**: El directorio activo se renombra a `.bak`.
+  8. **Rename Publish**: El directorio de staging `.tmp` se renombra al path activo.
+  9. **Dir Fsync**: Sincroniza el directorio padre.
+  10. **Clean**: Se borra la carpeta `.bak`.
+  * *Si hay fallos de renombrado o fsync, el sistema revierte el backup `.bak` a su ubicación original.*
+
+### 38.9. Concurrencia: ¿Cómo funciona el mecanismo de locks y cómo convive con la revisión?
+El sistema gestiona la concurrencia a través de dos capas que operan en niveles diferentes (bloqueo físico del sistema operativo + concurrencia optimista lógica de datos):
+* **Locks de Archivo (Concurrencia Pesimista):** Usa bloqueos a nivel de archivo con `flock` (o equivalente en Windows) mediante la librería de Go. Cuando un proceso mutador se ejecuta, toma un lock exclusivo en `.locks/<id>.lock`. Si otro proceso intenta mutar el mismo item concurrentemente, no puede adquirir el lock de archivo y falla de inmediato con `work_item_locked`. Esto previene colisiones y corrupción a nivel físico de filesystem mientras dura la transacción (milisegundos).
+* **Número de Revisión (Concurrencia Optimista):** El manifest guarda un entero `revision`. Cuando la CLI lee el manifest (revisión `N`) y va a confirmar cambios, el commit requiere que la versión en disco siga siendo `N`. Si otro proceso modificó el item antes (llevando el disco a `N+1`), el commit fallará con `concurrent_modification`.
+* **Convivencia:** El lock de archivo protege que dos comandos concurrentes no rompan físicamente la secuencia de staging/rename en el disco al mismo tiempo. El número de revisión protege el negocio a largo plazo (evita que un agente sobrescriba las decisiones que otro agente o humano tomó segundos o minutos atrás mientras el primero aún preparaba su entrega).
+
+### 38.10. ¿La idempotencia por `operation_id` es lo mismo que ejecutar `sdd-cli status`?
+No. Aunque la salida del reintento exitoso se parezca a una consulta:
+* `status` es una consulta **lectura pura (Read-Only)** que no sabe la intención del agente y no valida nada.
+* El reintento idempotente (enviando el mismo comando mutador con el mismo `operation_id`) es un **intento de mutación**. La primera vez que se ejecuta, el motor aplica la lógica de la fase (altera estados, escribe templates y registra eventos). En el reintento (por ejemplo, si el agente perdió la conexión de red original y no sabe si el comando impactó), el motor busca el ID en el log de eventos y, al ver que ya se aplicó, **no vuelve a modificar el disco ni a incrementar revisiones**, pero le devuelve al agente el resultado exitoso original. Esto evita que el agente tenga que correr un `status` y deducir o parsear si su acción fue exitosa, eliminando "alucinaciones de estado".
+
+### 38.11. ¿Cómo se conocen y utilizan los comandos disponibles en el proyecto y en Go?
+* **En la CLI del proyecto (`sdd-cli`):** Al construirse sobre la librería Cobra, la CLI es autodescriptiva. Puedes ejecutar `sdd-cli --help` (o simplemente `sdd-cli` sin argumentos) para desplegar el menú principal con todos los comandos (`init`, `start`, `status`, `next`, `begin`, `deliver`, `approve`, `complete`, etc.) y sus respectivas flags.
+* **En el toolkit nativo de Go (toolchain):** Durante el desarrollo se utilizan los siguientes comandos principales:
+  * `go build`: Compila el código del proyecto y genera el binario ejecutable final (`sdd-cli`).
+  * `go run <archivo>`: Compila en memoria y ejecuta el programa directamente, agilizando las pruebas rápidas en desarrollo (ej. `go run main.go`).
+  * `go test ./...`: Ejecuta la suite completa de pruebas unitarias y de integración del proyecto.
+  * `go generate ./...`: Escanea el código en busca de directivas especiales (`//go:generate`) para ejecutar scripts automáticos previos a la compilación.
+  * `go fmt ./...`: Formatea todo el código del repositorio siguiendo las convenciones de estilo oficiales de Go.
+
+### 38.12. ¿Cuál es la diferencia entre Struct, map[] y type en Go?
+* **`struct`**: Es una estructura estática, inmutable en su forma y de tipado fuerte en tiempo de compilación. Agrupa campos fijos que pueden ser de distintos tipos (ej. strings, ints, booleanos u otros structs). Es el equivalente a las `interface` de TypeScript o a un DTO en Java.
+* **`map[K]V`**: Es una estructura dinámica de clave-valor (similar a un `HashMap` en Java o a un objeto de JS `{}`). Al contrario del struct, todas las claves deben tener el mismo tipo `K` y todos los valores el mismo tipo `V`. Su tamaño y claves varían dinámicamente en tiempo de ejecución.
+* **`type`**: Es una palabra clave reservada de Go para definir tipos de datos creados por el desarrollador. Se usa para declarar interfaces (`type Reader interface`), structs (`type WorkItem struct`), firmas de funciones o aliases de tipos básicos (`type State string`) con el fin de reforzar el sistema de tipos del compilador.
+
+### 38.13. ¿Qué significan en Go "*" y "&" (Punteros vs Valores)?
+En Go, todos los argumentos se pasan por **valor** (copiándolos en memoria) salvo que se indique lo contrario usando punteros:
+* **El carácter `*`:**
+  * **En la declaración de un tipo (ej. `*WorkItem`):** Define un puntero, es decir, una variable que no almacena el objeto en sí sino su dirección de memoria física. Si una función recibe un puntero, puede mutar el objeto original en lugar de una copia.
+  * **Como operador (ej. `*item`):** Realiza una desreferenciación. Sirve para acceder o modificar el valor guardado en la dirección de memoria a la que apunta el puntero.
+* **El carácter `&`:** Es el operador que devuelve la dirección de memoria de una variable. Se usa para transformar una variable de valor en un puntero. Por ejemplo, `item := &WorkItem{}` crea un struct e inicializa `item` con su referencia de memoria.
+
+### 38.14. ¿Qué significan "nil" y el operador ":=" en Go?
+* **`nil`**: Representa la ausencia de valor o el valor cero para tipos de referencia (punteros, interfaces, maps, slices, funciones y canales). Es la analogía directa de `null` en Java o `null/undefined` en JavaScript.
+* **El operador `:=`**: Es la declaración y asignación corta. Permite crear una variable nueva y asignarle un valor dentro de una función sin necesidad de escribir la palabra clave `var` ni definir explícitamente el tipo de dato, ya que Go lo deduce a partir del valor de la derecha (ej. `num := 10` se infiere como un entero). Para reasignaciones de variables ya existentes se utiliza el operador de asignación normal `=`.
+
+### 38.15. ¿Qué es go:embed y //go:generate? ¿Qué ventajas, desventajas y analogías tienen?
+Ambos se consideran **directivas del compilador**, es decir, comentarios especiales en el código fuente que el compilador de Go procesa activamente:
+* **`go:embed`**:
+  * **Función:** Inserta archivos o carpetas completas del sistema de archivos local directamente dentro del binario compilado. Esto nos permite distribuir la CLI de forma totalmente autónoma (la carpeta base `.sdd/` se empaqueta en el binario y se extrae localmente al correr `sdd-cli init`).
+  * **Desventajas:** Aumenta el peso final del binario compilado y el consumo de memoria al cargarse. Adicionalmente, cualquier cambio en los recursos embebidos requiere recompilar el código de Go para que se aplique.
+* **`//go:generate`**:
+  * **Función:** Define una tarea o script que se ejecutará de forma automática al invocar el comando de terminal `go generate ./...` (por ejemplo, para regenerar código o sincronizar assets).
+  * **Analogía con NodeJS:** Se comporta de forma similar a los `scripts` definidos en un `package.json`, con la diferencia de que en Go las tareas se declaran de manera distribuida dentro del código fuente en lugar de un archivo de configuración centralizado. Además, se beneficia de estar integrado de forma nativa en el toolchain del lenguaje sin requerir librerías externas de scripting.
+
+---
+
+## 39. Conclusiones
 
 La CLI actual ya no es solamente un prototipo de comandos. Es un nucleo determinista con:
 
