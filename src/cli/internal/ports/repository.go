@@ -127,6 +127,25 @@ type ProjectInitializer interface {
 	Initialize(targetDir string) error
 }
 
+type AdapterDescriptor struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+type AdapterInstallation struct {
+	ID    string   `json:"id"`
+	Files []string `json:"files"`
+}
+
+type AdapterCatalog interface {
+	ListAdapters() ([]AdapterDescriptor, error)
+}
+
+type AdapterInstaller interface {
+	InstallAdapter(targetDir string, adapterID string) (*AdapterInstallation, error)
+}
+
 type Clock interface {
 	Now() time.Time
 }

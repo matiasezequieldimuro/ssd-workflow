@@ -33,7 +33,7 @@ type JSONError struct {
 func NewRootCommand(application Application) *cobra.Command {
 	options := &rootOptions{}
 	root := &cobra.Command{
-		Use:           "sdd",
+		Use:           "sdd-cli",
 		Short:         "SDD Engine CLI - Spec-Driven Development Framework Engine",
 		Long:          "CLI tool for managing Spec-Driven Development workflows, work items, phase state transitions, and event tracking.",
 		SilenceErrors: true,
@@ -43,6 +43,7 @@ func NewRootCommand(application Application) *cobra.Command {
 	root.PersistentFlags().StringVar(&options.targetDir, "dir", ".", "Target project directory path")
 	root.AddCommand(
 		newInitCommand(application.Init, options),
+		newAdaptersCommand(application.Adapters, options),
 		newStartCommand(application.Start, options),
 		newStatusCommand(application.Status, options),
 		newNextCommand(application.Next, options),
@@ -134,9 +135,12 @@ func errorCode(err error) string {
 	switch {
 	case errors.Is(err, domain.ErrWorkItemNotFound),
 		errors.Is(err, domain.ErrWorkflowNotFound),
-		errors.Is(err, domain.ErrPhaseNotFound):
+		errors.Is(err, domain.ErrPhaseNotFound),
+		errors.Is(err, domain.ErrAdapterNotFound):
 		return "not_found"
 	case errors.Is(err, domain.ErrWorkItemAlreadyExists):
+		return "already_exists"
+	case errors.Is(err, domain.ErrAdapterInstallConflict):
 		return "already_exists"
 	case errors.Is(err, domain.ErrWorkItemAlreadyArchived):
 		return "already_archived"

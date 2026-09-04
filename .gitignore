@@ -1,5 +1,6 @@
 # Generated embeddings (synchronized from src/.sdd at build time)
 src/cli/embeds/default_sdd/
+src/cli/embeds/default_adapters/
 
 # Go binaries
 src/cli/sdd

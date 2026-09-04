@@ -6,3 +6,8 @@ import "embed"
 //
 //go:embed all:default_sdd
 var DefaultSDDResources embed.FS
+
+// DefaultAdapterResources embeds agent-specific adapter assets for installation.
+//
+//go:embed all:default_adapters
+var DefaultAdapterResources embed.FS

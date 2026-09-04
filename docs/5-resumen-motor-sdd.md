@@ -98,25 +98,27 @@ sdd/
   procedures/             # Instrucciones portables para generar y validar.
   schema/                 # Formatos de manifest y eventos.
 
-adapters/
-  codex/
-    prompts/
-    skills/
-    hooks/
-    install-or-sync.md
+src/adapters/
   claude-code/
-    commands/
-    skills/
-    hooks/
-  copilot/
-    prompts/
-    instructions/
+    CLAUDE.md
+    .mcp.json
+    .claude/
+      agents/
+      commands/
+      skills/
+      hooks/
+      rules/
 
 bin/
-  sdd                     # CLI portable del motor.
+  sdd-cli                 # CLI portable del motor.
 ```
 
 El directorio `sdd/` contiene el contrato común. Los adaptadores no duplican workflows ni reglas: sólo traducen la interacción propia de cada agente hacia ese contrato.
+
+El registro `.sdd/registry/capabilities.yaml` funciona como indice portable de
+habilidades. Cada capability referencia un procedure completo bajo
+`.sdd/procedures/`; las skills de un adapter deben ser wrappers finos que
+activen y referencien ese contenido, no copias.
 
 ## Workflows, manifests y CLI
 

@@ -19,6 +19,7 @@ import (
 const (
 	categoryProject   = "project"
 	categoryConfig    = "config"
+	categoryRegistry  = "registry"
 	categorySchema    = "schema"
 	categoryWorkflow  = "workflow"
 	categoryTemplate  = "template"
@@ -55,6 +56,17 @@ type validationConfig struct {
 	} `yaml:"defaults"`
 }
 
+type capabilityRegistry struct {
+	SchemaVersion string                 `yaml:"schema_version"`
+	Capabilities  []registeredCapability `yaml:"capabilities"`
+}
+
+type registeredCapability struct {
+	ID        string `yaml:"id"`
+	Title     string `yaml:"title"`
+	Procedure string `yaml:"procedure"`
+}
+
 func NewFSValidationInspector() ports.ValidationInspector {
 	return &FSValidationInspector{schemas: NewSchemaValidator()}
 }
@@ -70,6 +82,7 @@ func (inspector *FSValidationInspector) InspectProject(baseDir string) ([]domain
 		".sdd/workflows",
 		".sdd/templates",
 		".sdd/procedures",
+		".sdd/registry",
 		".sdd/work-items/active",
 		".sdd/work-items/archive",
 	}
@@ -77,9 +90,11 @@ func (inspector *FSValidationInspector) InspectProject(baseDir string) ([]domain
 		context.inspectDirectory(path, categoryProject, "project.required_path_exists", true)
 	}
 	context.inspectRegularFile(".sdd/config.yaml", categoryProject, "project.required_path_exists", true)
+	context.inspectRegularFile(".sdd/registry/capabilities.yaml", categoryProject, "project.required_path_exists", true)
 
 	inspector.inspectSchemas(context)
 	defaultWorkflow := inspector.inspectConfig(context)
+	inspector.inspectCapabilities(context)
 	inspector.inspectWorkflows(context, "")
 	if defaultWorkflow != "" {
 		if _, exists := context.workflows[defaultWorkflow]; exists {
@@ -96,6 +111,7 @@ func (inspector *FSValidationInspector) InspectProject(baseDir string) ([]domain
 		context.fail(categoryProject, "project.work_items_readable", ".sdd/work-items/active", err.Error())
 		return context.checks, nil
 	}
+
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".") {
 			continue
@@ -159,6 +175,57 @@ func (inspector *FSValidationInspector) InspectProject(baseDir string) ([]domain
 	}
 
 	return context.checks, nil
+}
+
+func (inspector *FSValidationInspector) inspectCapabilities(context *validationContext) {
+	target := ".sdd/registry/capabilities.yaml"
+	data, err := os.ReadFile(context.absolute(target))
+	if err != nil {
+		context.fail(categoryRegistry, "registry.yaml_valid", target, err.Error())
+		return
+	}
+
+	var registry capabilityRegistry
+	if err := yaml.Unmarshal(data, &registry); err != nil {
+		context.fail(categoryRegistry, "registry.yaml_valid", target, err.Error())
+		return
+	}
+	context.pass(categoryRegistry, "registry.yaml_valid", target, "capability registry is valid YAML")
+	if registry.SchemaVersion != "0.1" {
+		context.fail(categoryRegistry, "registry.schema_version_supported", target, fmt.Sprintf("unsupported schema version %q", registry.SchemaVersion))
+	} else {
+		context.pass(categoryRegistry, "registry.schema_version_supported", target, "capability registry schema version is supported")
+	}
+
+	seen := make(map[string]struct{}, len(registry.Capabilities))
+	for index, capability := range registry.Capabilities {
+		capabilityTarget := fmt.Sprintf("%s#capabilities[%d]", target, index)
+		if strings.TrimSpace(capability.ID) == "" {
+			context.fail(categoryRegistry, "registry.capability_id_valid", capabilityTarget, "capability id cannot be empty")
+		} else if _, exists := seen[capability.ID]; exists {
+			context.fail(categoryRegistry, "registry.capability_id_unique", capabilityTarget, fmt.Sprintf("duplicate capability id %q", capability.ID))
+		} else {
+			seen[capability.ID] = struct{}{}
+			context.pass(categoryRegistry, "registry.capability_id_unique", capabilityTarget, fmt.Sprintf("capability id %q is unique", capability.ID))
+		}
+		if strings.TrimSpace(capability.Title) == "" {
+			context.fail(categoryRegistry, "registry.capability_title_present", capabilityTarget, "capability title cannot be empty")
+		}
+		if capability.Procedure == "" {
+			continue
+		}
+		procedurePath := filepath.ToSlash(filepath.Clean(capability.Procedure))
+		if procedurePath != capability.Procedure ||
+			!strings.HasPrefix(procedurePath, "procedures/") ||
+			filepath.Ext(procedurePath) != ".md" {
+			context.fail(categoryRegistry, "registry.procedure_reference_valid", capabilityTarget, fmt.Sprintf("invalid procedure reference %q", capability.Procedure))
+			continue
+		}
+		procedureTarget := filepath.ToSlash(filepath.Join(".sdd", filepath.FromSlash(procedurePath)))
+		if context.inspectRegularFile(procedureTarget, categoryProcedure, "registry.procedure_file_exists", true) {
+			context.pass(categoryRegistry, "registry.procedure_reference_valid", capabilityTarget, fmt.Sprintf("procedure %q is available", capability.Procedure))
+		}
+	}
 }
 
 func (inspector *FSValidationInspector) InspectWorkItem(baseDir, id string) ([]domain.ValidationCheck, error) {

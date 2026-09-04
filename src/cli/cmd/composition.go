@@ -7,6 +7,7 @@ import (
 
 type Application struct {
 	Init        *usecases.InitUseCase
+	Adapters    AdaptersApplication
 	Start       *usecases.StartWorkItemUseCase
 	Status      *usecases.StatusUseCase
 	Next        *usecases.NextUseCase
@@ -25,6 +26,7 @@ func NewProductionApplication() Application {
 	workflows := infra.NewFSWorkflowRepository()
 	config := infra.NewFSConfigRepository()
 	artifacts := infra.NewArtifactManager()
+	adapters := infra.NewFSAdapterRepository()
 	clock := infra.NewSystemClock()
 	ids := infra.NewCryptoIDGenerator()
 	validator := infra.NewFSValidationInspector()
@@ -33,6 +35,10 @@ func NewProductionApplication() Application {
 		Init: usecases.NewInitUseCase(
 			infra.NewFSProjectInitializer(),
 		),
+		Adapters: AdaptersApplication{
+			List:    usecases.NewListAdaptersUseCase(adapters),
+			Install: usecases.NewInstallAdapterUseCase(adapters),
+		},
 		Start: usecases.NewStartWorkItemUseCase(
 			workItems,
 			workflows,
@@ -93,4 +99,9 @@ func NewProductionApplication() Application {
 			ids,
 		),
 	}
+}
+
+type AdaptersApplication struct {
+	List    *usecases.ListAdaptersUseCase
+	Install *usecases.InstallAdapterUseCase
 }

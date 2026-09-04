@@ -3,7 +3,7 @@
 > Estado: documentacion de la implementacion actual.  
 > Audiencia: desarrolladores que se incorporan al proyecto, con experiencia en JavaScript/TypeScript o Java y sin experiencia previa en Go.  
 > Alcance: contrato instalado en `src/.sdd/` y motor implementado en `src/cli/`.  
-> Version documentada: contrato y CLI v0.1, estado al 2026-08-19.
+> Version documentada: contrato y CLI v0.1, estado al 2026-08-29.
 
 ---
 
@@ -303,7 +303,26 @@ src/cli/
 │   ├── usecases/
 │   └── infra/
 └── tools/
-    └── syncsdd/
+    ├── syncsdd/
+    └── syncadapters/
+```
+
+Los adapters fuente viven fuera de la CLI:
+
+```text
+src/adapters/
+└── claude-code/
+    ├── adapter.yaml
+    ├── CLAUDE.md
+    ├── .mcp.json
+    └── .claude/
+        ├── settings.json
+        ├── settings.local.json.example
+        ├── agents/
+        ├── skills/
+        ├── commands/
+        ├── hooks/
+        └── rules/
 ```
 
 ### 8.3. Estructura instalada en un proyecto usuario
@@ -329,6 +348,27 @@ mi-proyecto/
 
 Los fixtures contractuales de `tests/` no se instalan en el proyecto usuario.
 
+Luego de `sdd-cli adapters install claude-code`, el proyecto suma:
+
+```text
+mi-proyecto/
+├── CLAUDE.md
+├── .mcp.json
+└── .claude/
+    ├── .gitignore
+    ├── settings.json
+    ├── settings.local.json.example
+    ├── agents/
+    ├── skills/
+    ├── commands/
+    ├── hooks/
+    └── rules/
+```
+
+El adapter no reemplaza `.sdd/`: las skills Claude son wrappers finos que
+referencian `registry/capabilities.yaml` y `procedures/` sin duplicar su
+contenido.
+
 ### 8.4. Estructura de un work item activo
 
 ```text
@@ -351,23 +391,29 @@ El binario debe poder ejecutar `sdd-cli init` sin depender de la ubicacion del r
 
 ```mermaid
 flowchart LR
-    Contract["src/.sdd/<br/>Fuente versionada"]
-    Generate["go generate<br/>tools/syncsdd"]
-    Generated["src/cli/embeds/default_sdd/<br/>Generado, no versionado"]
+    Contract["src/.sdd/<br/>Contrato versionado"]
+    Adapters["src/adapters/<br/>Adapters versionados"]
+    Generate["go generate<br/>syncsdd + syncadapters"]
+    Generated["src/cli/embeds/<br/>Recursos generados"]
     Binary["Binario sdd-cli<br/>go:embed"]
-    Project["Proyecto destino<br/>.sdd/"]
+    Project["Proyecto destino"]
 
     Contract --> Generate --> Generated --> Binary
+    Adapters --> Generate
     Binary -->|"sdd-cli init"| Project
+    Binary -->|"sdd-cli adapters install"| Project
 ```
 
 Puntos importantes:
 
 - `src/.sdd/` se versiona.
+- `src/adapters/` se versiona.
 - `src/cli/embeds/default_sdd/` es generado y esta en `.gitignore`.
-- `generate.go` declara `//go:generate go run tools/syncsdd/main.go`.
-- `embeds/embeds.go` incluye el directorio generado con `//go:embed`.
+- `src/cli/embeds/default_adapters/` tambien es generado y no se versiona.
+- `generate.go` sincroniza contrato y adapters.
+- `embeds/embeds.go` incluye ambos directorios generados con `//go:embed`.
 - `sdd-cli init` publica la copia embebida en el proyecto destino.
+- `sdd-cli adapters install <id>` publica solamente el adapter solicitado.
 
 En un checkout limpio debe sincronizarse el embed antes de compilar:
 
@@ -582,18 +628,20 @@ Implementa:
 
 | Comando | Tipo | Funcion | Modifica estado | `--operation-id` |
 | --- | --- | --- | --- | --- |
-| `sdd init` | Inicializacion | Instala `.sdd/` | Si | No |
-| `sdd start` | Creacion | Crea un work item | Si | Si |
-| `sdd status` | Consulta | Muestra manifest y fases | No | No |
-| `sdd next` | Consulta | Informa la proxima accion | No | No |
-| `sdd validate` | Diagnostico | Valida proyecto o work item activo/archivado | No | No |
-| `sdd begin` | Transicion | Inicia una fase habilitada | Si | Si |
-| `sdd deliver` | Transicion | Entrega el resultado de una fase | Si | Si |
-| `sdd approve` | Gate humano | Aprueba una fase | Si | Si |
-| `sdd reject` | Gate humano | Rechaza una fase para retrabajo | Si | Si |
-| `sdd complete` | Transicion | Completa una fase o work item | Si | Si |
-| `sdd archive` | Cierre | Publica un expediente archivado | Si | Si |
-| `sdd record-event` | Observabilidad | Agrega un evento custom | Si | Si |
+| `sdd-cli init` | Inicializacion | Instala `.sdd/` | Si | No |
+| `sdd-cli adapters list` | Catalogo | Lista adapters soportados por el binario | No | No |
+| `sdd-cli adapters install` | Inicializacion | Instala un adapter en un proyecto SDD | Si | No |
+| `sdd-cli start` | Creacion | Crea un work item | Si | Si |
+| `sdd-cli status` | Consulta | Muestra manifest y fases | No | No |
+| `sdd-cli next` | Consulta | Informa la proxima accion | No | No |
+| `sdd-cli validate` | Diagnostico | Valida proyecto o work item activo/archivado | No | No |
+| `sdd-cli begin` | Transicion | Inicia una fase habilitada | Si | Si |
+| `sdd-cli deliver` | Transicion | Entrega el resultado de una fase | Si | Si |
+| `sdd-cli approve` | Gate humano | Aprueba una fase | Si | Si |
+| `sdd-cli reject` | Gate humano | Rechaza una fase para retrabajo | Si | Si |
+| `sdd-cli complete` | Transicion | Completa una fase o work item | Si | Si |
+| `sdd-cli archive` | Cierre | Publica un expediente archivado | Si | Si |
+| `sdd-cli record-event` | Observabilidad | Agrega un evento custom | Si | Si |
 
 ### 12.3. `sdd-cli init`
 
@@ -612,6 +660,53 @@ Comportamiento:
 6. publica el directorio mediante rename.
 
 No inicializa Git ni sobrescribe una instalacion existente.
+
+#### 12.3.1. `sdd-cli adapters list`
+
+```bash
+sdd-cli adapters list
+sdd-cli adapters list --json
+```
+
+Lista los adapters incluidos en el binario. La v0.1 expone solamente
+`claude-code`.
+
+Salida JSON:
+
+```json
+{
+  "success": true,
+  "data": {
+    "adapters": [
+      {
+        "id": "claude-code",
+        "title": "Claude Code",
+        "description": "Adapter de proyecto para operar el motor SDD desde Claude Code."
+      }
+    ]
+  }
+}
+```
+
+#### 12.3.2. `sdd-cli adapters install <id>`
+
+```bash
+sdd-cli init --dir /ruta/al/proyecto
+sdd-cli adapters install claude-code --dir /ruta/al/proyecto
+```
+
+Comportamiento:
+
+1. valida que el adapter exista en el catalogo embebido;
+2. exige una instalacion `.sdd/` previa;
+3. comprueba todas las colisiones antes de escribir;
+4. prepara los assets en staging;
+5. publica `CLAUDE.md`, `.mcp.json` y `.claude/`;
+6. falla sin sobrescribir si cualquier archivo destino ya existe.
+
+No existe `--force` en v0.1. El adapter instala
+`.claude/settings.local.json.example`, mientras `.claude/.gitignore` excluye el
+archivo privado real.
 
 ### 12.4. `sdd-cli start <id>`
 
@@ -1603,13 +1698,14 @@ El schema no puede expresar todas las invariantes. `Workflow.ValidateSemantics` 
 
 ### 25.3. Diagnostico explicito
 
-`sdd validate` reutiliza estas invariantes, pero no se detiene en el primer error.
+`sdd-cli validate` reutiliza estas invariantes, pero no se detiene en el primer error.
 Los validadores de dominio exponen colecciones de violaciones y conservan sus
 wrappers fail-fast para las operaciones existentes.
 
 El inspector agrega checks sobre:
 
 - config consumida por la CLI;
+- `registry/capabilities.yaml`, IDs unicos y procedures referenciados;
 - compilacion de los cuatro schemas;
 - todos los workflows dentro del scope;
 - templates, placeholders y procedures;
@@ -2015,7 +2111,7 @@ Luego de `init`, el proyecto controla sus workflows y templates locales. El bina
 | --- | --- |
 | **Retrabajo semántico e invalidación transitoria** | Diseñar una operación explícita, propuesta como `sdd-cli rework <id> --phase <id> --reason ...`. Debe reabrir la fase que requiere corrección, marcar `superseded` únicamente a sus descendientes afectados en el DAG, preservar artifacts y approvals como historial, registrar las transiciones y bloquear el avance hasta completar nuevamente la cadena. Si el work item estaba `completed`, debe volver a `active`; un expediente `archived` no se reabre y debe originar un work item nuevo vinculado. |
 | **Cancelación explícita** | Diseñar `sdd-cli cancel <id> --reason ...` con actor autorizado, motivo obligatorio, evento de auditoría e invariantes de cierre. Debe decidirse expresamente la ubicación física de un work item cancelado y su relación con archive; no se debe reutilizar `archived` como sustituto de `cancelled`. |
-| **Primer adapter de agente** | Implementar un adapter inicial para Claude Code o GitHub Copilot. Debe aportar instrucciones, skills y hooks para consultar `status`/`next` e invocar comandos SDD, pero nunca duplicar la máquina de estados ni mutar manifests directamente. |
+| **Prompts del adapter Claude Code** | Completar progresivamente los skeletons de `CLAUDE.md`, agents, skills, commands, hooks y rules mediante pruebas reales. Las skills deben seguir siendo wrappers finos de capabilities/procedures portables. |
 | **Pruebas reales del harness** | Ejecutar un workflow completo sobre un proyecto real usando el adapter elegido, para comprobar ergonomía, contexto entregado al agente, recuperabilidad e intervención humana en gates. |
 
 ### 34.2. Capacidades de motor posteriores
@@ -2030,6 +2126,8 @@ Luego de `init`, el proyecto controla sus workflows y templates locales. El bina
 ### 34.3. Evolución del ecosistema
 
 - adapters específicos para otros agentes, reutilizando el mismo contrato;
+- packs opcionales de capabilities tecnologicas o de dominio, por ejemplo CAP o UI5;
+- comandos futuros `sdd-cli packs list/install` sin mezclar esos packs con el core SDD;
 - catálogo de skills y permisos por plataforma;
 - memoria episódica/semántica con Engram;
 - navegación y recuperación de relaciones de código con CodeGraph;

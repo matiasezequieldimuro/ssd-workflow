@@ -222,6 +222,7 @@ func TestCLIValidateReportsMultipleFailuresWithoutMutation(t *testing.T) {
 	if responseData(t, validProject)["valid"] != true {
 		t.Fatalf("project validation = %#v", validProject)
 	}
+
 	runJSONBinary(
 		t,
 		binary,
@@ -272,6 +273,74 @@ func TestCLIValidateReportsMultipleFailuresWithoutMutation(t *testing.T) {
 		!bytes.Equal(beforeEvents, afterEvents) ||
 		!bytes.Equal(beforeManifest, afterManifest) {
 		t.Fatal("validate modified the persisted work item")
+	}
+}
+
+func TestCLIListsAndInstallsClaudeCodeAdapter(t *testing.T) {
+	binary := buildTestBinary(t)
+	projectDir := t.TempDir()
+
+	listed := runJSONBinary(t, binary, 0, "--json", "adapters", "list")
+	listData := responseData(t, listed)
+	adapters, ok := listData["adapters"].([]interface{})
+	if !ok || len(adapters) != 1 {
+		t.Fatalf("adapters list = %#v", listData["adapters"])
+	}
+	claude, ok := adapters[0].(map[string]interface{})
+	if !ok || claude["id"] != "claude-code" {
+		t.Fatalf("adapter = %#v", adapters[0])
+	}
+
+	missingSDD := runJSONBinary(
+		t,
+		binary,
+		1,
+		"--json", "--dir", projectDir,
+		"adapters", "install", "claude-code",
+	)
+	if missingSDD.Error == nil || missingSDD.Error.Code != "invalid_input" {
+		t.Fatalf("missing .sdd response = %#v", missingSDD)
+	}
+
+	runJSONBinary(t, binary, 0, "--json", "--dir", projectDir, "init")
+	installed := runJSONBinary(
+		t,
+		binary,
+		0,
+		"--json", "--dir", projectDir,
+		"adapters", "install", "claude-code",
+	)
+	installData := responseData(t, installed)
+	if installData["id"] != "claude-code" {
+		t.Fatalf("installation = %#v", installData)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, "CLAUDE.md")); err != nil {
+		t.Fatalf("CLAUDE.md missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude", "skills", "create-plan", "SKILL.md")); err != nil {
+		t.Fatalf("create-plan skill missing: %v", err)
+	}
+
+	conflict := runJSONBinary(
+		t,
+		binary,
+		1,
+		"--json", "--dir", projectDir,
+		"adapters", "install", "claude-code",
+	)
+	if conflict.Error == nil || conflict.Error.Code != "already_exists" {
+		t.Fatalf("adapter conflict response = %#v", conflict)
+	}
+
+	unknown := runJSONBinary(
+		t,
+		binary,
+		1,
+		"--json", "--dir", projectDir,
+		"adapters", "install", "unknown",
+	)
+	if unknown.Error == nil || unknown.Error.Code != "not_found" {
+		t.Fatalf("unknown adapter response = %#v", unknown)
 	}
 }
 

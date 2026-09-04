@@ -161,4 +161,10 @@ func TestArchiveErrorsUseStableCodes(t *testing.T) {
 	if got := errorCode(domain.ErrWorkItemCannotArchive); got != "invalid_transition" {
 		t.Fatalf("cannot archive code = %q", got)
 	}
+	if got := errorCode(domain.ErrAdapterNotFound); got != "not_found" {
+		t.Fatalf("adapter not found code = %q", got)
+	}
+	if got := errorCode(domain.ErrAdapterInstallConflict); got != "already_exists" {
+		t.Fatalf("adapter conflict code = %q", got)
+	}
 }

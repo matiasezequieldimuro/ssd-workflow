@@ -122,6 +122,34 @@ func TestValidationInspectorDoesNotRecoverTransactions(t *testing.T) {
 	}
 }
 
+func TestValidationInspectorValidatesCapabilityProcedureReferences(t *testing.T) {
+	baseDir := t.TempDir()
+	if err := NewFSProjectInitializer().Initialize(baseDir); err != nil {
+		t.Fatalf("Initialize() error = %v", err)
+	}
+	registryPath := filepath.Join(baseDir, ".sdd", "registry", "capabilities.yaml")
+	registry := `schema_version: "0.1"
+capabilities:
+  - id: sdd.missing-procedure
+    title: Missing procedure
+    procedure: procedures/missing.md
+`
+	if err := os.WriteFile(registryPath, []byte(registry), 0644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	checks, err := NewFSValidationInspector().InspectProject(baseDir)
+	if err != nil {
+		t.Fatalf("InspectProject() error = %v", err)
+	}
+	for _, check := range checks {
+		if check.Code == "registry.procedure_file_exists" && check.Status == domain.CheckFailed {
+			return
+		}
+	}
+	t.Fatalf("missing capability procedure was not reported: %#v", checks)
+}
+
 func TestContainedPathRejectsTraversalAndSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	if _, err := containedPath(root, "..", "outside"); !errors.Is(err, domain.ErrInvalidPath) {

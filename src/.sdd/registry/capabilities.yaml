@@ -49,3 +49,23 @@ capabilities:
     title: Consultar estado del work item
     inputs: [work_item_id]
     outputs: [manifest, next_actions]
+  - id: sdd.setup-project
+    title: Preparar proyecto para SDD
+    procedure: procedures/setup-project.md
+    inputs: [project_context]
+    outputs: [initialized_contract, installed_adapters]
+  - id: sdd.onboard-project
+    title: Documentar proyecto existente
+    procedure: procedures/onboard-project.md
+    inputs: [project_sources]
+    outputs: [project_context]
+  - id: sdd.answer-project-question
+    title: Responder consulta técnica o funcional
+    procedure: procedures/answer-project-question.md
+    inputs: [question, project_context]
+    outputs: [answer]
+  - id: sdd.research-topic
+    title: Investigar tema técnico
+    procedure: procedures/research-topic.md
+    inputs: [research_question, constraints]
+    outputs: [research_report]
