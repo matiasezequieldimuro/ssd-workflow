@@ -14,8 +14,12 @@ sources: {{sources}}
 
 ## Cambios realizados
 
-## Archivos y componentes relevantes
+## Decisiones relevantes o críticas
 
 ## Desviaciones aprobadas del plan
 
 ## Pruebas añadidas o actualizadas
+
+## Pruebas realizadas
+
+## Flujo de la solución (opcional)
