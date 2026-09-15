@@ -139,6 +139,10 @@ func TestCLICompletesFastChangeLifecycle(t *testing.T) {
 	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
 		t.Fatalf("active manifest still exists: %v", err)
 	}
+	activeWorkItemPath := filepath.Join(projectDir, ".sdd", "work-items", "active", "cli-contract")
+	if _, err := os.Stat(activeWorkItemPath); !os.IsNotExist(err) {
+		t.Fatalf("active work item directory still exists: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(projectDir, filepath.FromSlash(archivePath), "manifest.yaml")); err != nil {
 		t.Fatalf("archived manifest missing: %v", err)
 	}

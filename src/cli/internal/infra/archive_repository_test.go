@@ -49,6 +49,9 @@ func TestArchiveWorkItemPublishesCompleteSnapshot(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(archivePath, "artifacts", "archive.md")); err != nil {
 		t.Fatalf("archive artifact missing: %v", err)
 	}
+	if _, err := os.Stat(filepath.Join(archivePath, "evidence")); err != nil {
+		t.Fatalf("archive evidence directory missing: %v", err)
+	}
 	events, err := os.ReadFile(filepath.Join(archivePath, "events.jsonl"))
 	if err != nil {
 		t.Fatalf("ReadFile() events error = %v", err)

@@ -47,7 +47,7 @@ func TestFSAdapterRepositoryInstallsClaudeCode(t *testing.T) {
 		".claude/skills/create-plan/SKILL.md",
 		".claude/commands/sdd/feature.md",
 		".claude/hooks/.gitkeep",
-		".claude/rules/sdd-contract.md",
+		".claude/rules/.gitkeep",
 	}
 	for _, relative := range expectedFiles {
 		if _, err := os.Stat(filepath.Join(targetDir, filepath.FromSlash(relative))); err != nil {
