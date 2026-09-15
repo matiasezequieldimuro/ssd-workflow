@@ -70,6 +70,10 @@ func (initializer *FSProjectInitializer) Initialize(targetDir string) (resultErr
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return fmt.Errorf("failed to create %s: %w", path, err)
 		}
+		// Git does not track empty directories; keep them present after clone/worktree checkout.
+		if err := writeInitializedFile(filepath.Join(path, ".gitkeep"), nil); err != nil {
+			return fmt.Errorf("failed to create %s/.gitkeep: %w", path, err)
+		}
 	}
 
 	if err := os.Rename(stageDir, sddDir); err != nil {

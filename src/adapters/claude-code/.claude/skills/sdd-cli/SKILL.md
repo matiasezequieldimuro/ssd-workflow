@@ -14,6 +14,11 @@ intellectual content of artifacts or implement code.
 - Run `sdd-cli <command> --help` before using unfamiliar flags.
 - Use `--json` when structured output informs a decision; never infer state from chat.
 - Use `--dir <project>` only when the SDD root is not the current directory.
+- Always pass `--dir` as an **absolute path**. A relative path resolves against
+  the invoking process's cwd, which is not guaranteed to be the project root
+  (for example, inside a subagent or a freshly created worktree), and
+  `sdd-cli` fails to locate `.sdd`/`.claude`. Resolve it first (e.g. `$(pwd)`,
+  `$(git rev-parse --show-toplevel)`) instead of passing `..` or `./...`.
 - Reuse `--operation-id` when retrying a state-changing command after an uncertain result.
 
 ```bash
@@ -24,7 +29,7 @@ Global flags:
 
 | Flag | Use |
 | --- | --- |
-| `--dir <path>` | Select the project containing `.sdd/`; defaults to the current directory. |
+| `--dir <path>` | Select the project containing `.sdd/`; defaults to the current directory. Must be an absolute path. |
 | `--json` | Return the stable JSON envelope for agent decisions and integrations. |
 
 ## Inspect first

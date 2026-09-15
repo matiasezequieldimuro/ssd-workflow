@@ -93,6 +93,9 @@ Use one stable `--operation-id` when retrying an uncertain mutating operation.
 - The skill explains commands, flags, JSON output, and idempotent retries.
 - Run `sdd-cli <command> --help` instead of guessing flags or argument order.
 - Prefer `--json` for decisions that depend on structured state.
+- Always pass `--dir` as an absolute path, never a relative one (`../...`).
+  A relative path resolves against the invoking process's cwd, not the
+  project root, and causes `sdd-cli` to fail locating `.sdd`/`.claude`.
 - `status`, `next`, and `validate` are read-only. All other engine commands
   can change state or files.
 - Never manually edit `.sdd` manifests, events, locks, staging data, or

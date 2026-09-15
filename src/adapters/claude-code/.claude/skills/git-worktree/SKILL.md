@@ -48,10 +48,13 @@ Antes de crear el worktree:
    ```bash
    git fetch origin <base-branch>
    ```
-4. Determinar el nombre de la nueva rama y la ruta destino:
+4. Determinar el nombre de la nueva rama y la ruta destino como **ruta absoluta**
+   (nunca relativa; una ruta relativa se resuelve contra el cwd del proceso que
+   invoca la CLI, que puede no ser el repositorio raíz, y `sdd-cli` termina sin
+   encontrar `.claude`/`.sdd`):
    ```bash
    REPO_NAME=$(basename $(git rev-parse --show-toplevel))
-   WORKTREE_PATH="../${REPO_NAME}-worktrees/<work-item-id>"
+   WORKTREE_PATH="$(cd "$(git rev-parse --show-toplevel)/.." && pwd)/${REPO_NAME}-worktrees/<work-item-id>"
    BRANCH_NAME="feature/<work-item-id>" # o bug/... o cr/...
    ```
 5. Crear el worktree y la nueva rama apuntando a la rama base:
@@ -83,7 +86,8 @@ Un worktree virgen solo contiene archivos rastreados por Git. Es mandatorio inic
 ### C. Instruir al Usuario (Sesión Paralela)
 
 Una vez aprovisionado el worktree y configurado el entorno:
-1. Inicializar el work item en el worktree:
+1. Inicializar el work item en el worktree, pasando siempre `--dir` como ruta
+   absoluta (`$WORKTREE_PATH`, nunca `../...`):
    ```bash
    sdd-cli start <work-item-id> --dir "$WORKTREE_PATH" --title "<title>" ...
    ```

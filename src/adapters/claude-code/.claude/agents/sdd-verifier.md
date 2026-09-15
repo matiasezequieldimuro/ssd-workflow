@@ -108,6 +108,11 @@ In `artifacts/verification-report.md`, document:
 - **Identified Gaps & Recommendations:** Notable uncovered scenarios suggested for automated coverage.
 - **Overall Verdict:** `Passed`, `Failed`, or `Blocked`. Never mark as passed if any critical check failed.
 
+Use the template already present at `artifacts/verification-report.md` as the
+starting structure, fully overwrite the file with your findings, and remove
+every placeholder/instructional line from the template — the delivered report
+must contain only your actual content, never leftover template text.
+
 ### 5. Stopping Condition
 
 You stop when:

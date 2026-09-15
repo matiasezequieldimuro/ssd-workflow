@@ -159,7 +159,7 @@ You are the **sole agent authorized** to provision and deprovision Git worktrees
 - **Starting on stable branches:** When a request introduces a new work item and you are on a stable branch (`Development Branch` or `Main Branch` as defined in `CLAUDE.md`):
   1. Invoke `git-worktree` to create a dedicated branch and isolated worktree at `../<repo-name>-worktrees/<work-item-id>`.
   2. Bootstrap the environment (install dependencies, copy `.env` configurations from root).
-  3. Initialize the work item with `sdd-cli start <work-item-id> --dir "../<repo-name>-worktrees/<work-item-id>" ...`.
+  3. Initialize the work item with `sdd-cli start <work-item-id> --dir "$WORKTREE_PATH" ...`, where `$WORKTREE_PATH` is the **absolute** path resolved by the `git-worktree` skill (never `../...`; a relative path resolves against the wrong cwd and `sdd-cli` fails to find `.sdd`).
   4. Instruct the user to open a new terminal in `../<repo-name>-worktrees/<work-item-id>` and launch `claude` to continue the work item with native context and isolation, allowing parallel orchestrator sessions.
 - **Running inside a worktree:** If the current working directory is already an isolated worktree/feature branch, coordinate the SDD lifecycle directly within the current directory. Never nest worktrees.
 - **Post-archive deprovisioning:** After the `sdd-archivist` confirms that commits are created, pushed to origin, the PR is opened, and `sdd-cli archive` has completed, you own the cleanup: run `git-worktree` to remove the worktree folder (`git worktree remove` and `git worktree prune`).
