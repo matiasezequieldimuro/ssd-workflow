@@ -45,10 +45,12 @@ fi
 version="${SDD_VERSION:-}"
 if [ -z "$version" ]; then
   info "Resolving latest release..."
-  # First entry of the releases list = most recent (includes pre-releases like beta).
-  version="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
-    | grep -m1 '"tag_name":' \
-    | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')"
+  # Capture the full response first (avoids curl SIGPIPE/exit-23 from an early
+  # pipe close), then take the first tag_name = most recent release (includes
+  # pre-releases like beta).
+  releases_json="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")" \
+    || err "could not reach the GitHub releases API. Set SDD_VERSION manually."
+  version="$(printf '%s' "$releases_json" | awk -F'"' '/"tag_name":/{print $4; exit}')"
   [ -n "$version" ] || err "could not determine the latest release tag. Set SDD_VERSION manually."
 fi
 info "Installing ${BINARY} ${version} for ${os}/${arch}"
@@ -85,9 +87,16 @@ fi
 # --- Install ---------------------------------------------------------------
 tar -C "$tmp" -xzf "${tmp}/${archive}"
 
+# Choose the install directory. When the user did not force one and an sdd-cli is
+# already resolvable on PATH, install over that same active copy so the upgrade
+# actually takes effect (instead of leaving the old one shadowing the new one).
 install_dir="${SDD_INSTALL_DIR:-}"
+active_binary="$(command -v "$BINARY" 2>/dev/null || true)"
 if [ -z "$install_dir" ]; then
-  if [ -w /usr/local/bin ] 2>/dev/null; then
+  if [ -n "$active_binary" ]; then
+    install_dir="$(dirname "$active_binary")"
+    info "Existing ${BINARY} found at ${active_binary}; it will be overwritten."
+  elif [ -w /usr/local/bin ] 2>/dev/null; then
     install_dir="/usr/local/bin"
   else
     install_dir="${HOME}/.local/bin"
@@ -113,6 +122,27 @@ case ":${PATH}:" in
     printf '  export PATH="%s:$PATH"\n' "$install_dir"
     ;;
 esac
+
+# Warn about other sdd-cli copies elsewhere on PATH. They are now shadowed by the
+# fresh install, but stale copies earlier in PATH are the usual cause of
+# "unknown command"/old-behaviour surprises, so surface them explicitly.
+others=""
+saved_ifs="$IFS"
+IFS=:
+for dir in $PATH; do
+  [ -z "$dir" ] && dir="."
+  [ "$dir" = "$install_dir" ] && continue
+  if [ -x "${dir}/${BINARY}" ]; then
+    others="${others}  ${dir}/${BINARY}\n"
+  fi
+done
+IFS="$saved_ifs"
+if [ -n "$others" ]; then
+  printf '\n'
+  printf 'warning: other %s copies exist on your PATH:\n' "$BINARY" >&2
+  printf "$others" >&2
+  printf 'Remove them to avoid confusion, e.g.: rm <path> (use sudo if needed).\n' >&2
+fi
 
 printf '\n'
 info "Done. Verify with: ${BINARY} version"

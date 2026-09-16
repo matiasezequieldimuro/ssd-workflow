@@ -74,15 +74,34 @@ try {
     }
 
     # --- Install -----------------------------------------------------------
+    # If the user did not force a directory and sdd-cli is already resolvable,
+    # install over that active copy so the upgrade actually takes effect.
     $installDir = $env:SDD_INSTALL_DIR
+    $active = Get-Command $Binary -ErrorAction SilentlyContinue
     if ([string]::IsNullOrWhiteSpace($installDir)) {
-        $installDir = Join-Path $env:LOCALAPPDATA 'Programs\sdd-cli'
+        if ($active) {
+            $installDir = Split-Path -Parent $active.Source
+            Write-Info "Existing $Binary found at $($active.Source); it will be overwritten."
+        }
+        else {
+            $installDir = Join-Path $env:LOCALAPPDATA 'Programs\sdd-cli'
+        }
     }
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
 
     Expand-Archive -Path $zipPath -DestinationPath $tmp -Force
     Copy-Item -Path (Join-Path $tmp "$Binary.exe") -Destination (Join-Path $installDir "$Binary.exe") -Force
     Write-Info "Installed to $installDir\$Binary.exe"
+
+    # Warn about other copies elsewhere on PATH (stale copies are the usual cause
+    # of old-behaviour surprises after an upgrade).
+    $others = @(Get-Command $Binary -All -ErrorAction SilentlyContinue |
+        Where-Object { (Split-Path -Parent $_.Source) -ne $installDir })
+    if ($others.Count -gt 0) {
+        Write-Warning "Other $Binary copies exist on your PATH:"
+        $others | ForEach-Object { Write-Warning "  $($_.Source)" }
+        Write-Warning "Remove them to avoid confusion."
+    }
 
     # --- PATH --------------------------------------------------------------
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

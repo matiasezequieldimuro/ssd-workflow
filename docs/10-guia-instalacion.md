@@ -79,7 +79,7 @@ Opciones (variables de entorno):
 | Variable | Efecto |
 | --- | --- |
 | `SDD_VERSION` | Instala una version especifica (ej. `v0.1.0-beta`). Default: ultimo release. |
-| `SDD_INSTALL_DIR` | Carpeta destino. Default: `/usr/local/bin` (o `~/.local/bin`) en Unix; `%LOCALAPPDATA%\Programs\sdd-cli` en Windows. |
+| `SDD_INSTALL_DIR` | Carpeta destino. Default: si ya hay un `sdd-cli` en el `PATH`, lo sobrescribe en su lugar; si no, `/usr/local/bin` (o `~/.local/bin`) en Unix y `%LOCALAPPDATA%\Programs\sdd-cli` en Windows. |
 
 ```bash
 # Ejemplo: version fija y carpeta propia
