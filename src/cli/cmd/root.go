@@ -36,9 +36,11 @@ func NewRootCommand(application Application) *cobra.Command {
 		Use:           "sdd-cli",
 		Short:         "SDD Engine CLI - Spec-Driven Development Framework Engine",
 		Long:          "CLI tool for managing Spec-Driven Development workflows, work items, phase state transitions, and event tracking.",
+		Version:       version,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
+	root.SetVersionTemplate("sdd-cli {{.Version}}\n")
 	root.PersistentFlags().BoolVar(&options.json, "json", false, "Output results in JSON format")
 	root.PersistentFlags().StringVar(&options.targetDir, "dir", ".", "Target project directory path")
 	root.AddCommand(
@@ -55,6 +57,7 @@ func NewRootCommand(application Application) *cobra.Command {
 		newCompleteCommand(application.Complete, options),
 		newArchiveCommand(application.Archive, options),
 		newRecordEventCommand(application.RecordEvent, options),
+		newVersionCommand(options),
 	)
 	return root
 }

@@ -4,6 +4,11 @@ src/cli/embeds/default_adapters/
 
 # Go binaries
 src/cli/sdd
+src/cli/sdd-cli
+src/cli/sdd-cli.exe
+
+# Release build output
+dist/
 
 # IDE
 .idea/
