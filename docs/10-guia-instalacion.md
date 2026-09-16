@@ -174,6 +174,20 @@ sudo install -m 0755 sdd-cli /usr/local/bin/sdd-cli   # opcional: dejarlo en el 
 sdd-cli version
 ```
 
+> **Cuidado al mezclar `go install` con la instalacion por curl/release.** `go install`
+> deja el binario en `~/go/bin/sdd-cli` (tu `GOBIN`/`GOPATH/bin`), mientras que el
+> instalador rapido o la descarga manual lo dejan en `/usr/local/bin` o `~/.local/bin`.
+> Si tenes ambos, **el que gana es el que aparece primero en tu `PATH`**, no el que
+> instalaste ultimo: por eso podes "instalar la version nueva" y seguir ejecutando una
+> vieja. Ademas, un binario hecho con `go install`/`go build` sin `-ldflags` reporta
+> `version = dev`, asi que no siempre distinguis cual estas corriendo. Recomendaciones:
+> para desarrollo usa un solo camino (por ejemplo `go run .` o `go build -o /tmp/sdd .`
+> e invocalo por ruta), o mantene dev y release en carpetas separadas y controla el
+> orden del `PATH`. Ante la duda, corre `type -a sdd-cli` (macOS/Linux) o
+> `Get-Command sdd-cli -All` (Windows) para ver todas las copias, y `sdd-cli version`
+> para confirmar cual se ejecuta. El instalador rapido, cuando ya existe un `sdd-cli`
+> en el `PATH`, sobrescribe esa copia activa y avisa si detecta otras.
+
 ---
 
 ## 4. Verificar la instalacion
