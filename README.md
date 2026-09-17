@@ -1,15 +1,43 @@
 # SDD Workflow — Motor de Spec-Driven Development
 
-`sdd-cli` es el **motor determinista** del framework de Spec-Driven Development (SDD):
-gobierna el proceso de trabajo (fases, gates humanos, transiciones y trazabilidad)
-sobre el filesystem, de forma agent-agnostic y sin depender de que un LLM recuerde el
-estado. Es un binario nativo autocontenido escrito en Go, sin runtime externo.
+**SDD (Spec-Driven Development)** es un framework para trabajar con agentes de IA de
+forma gobernada: en lugar de confiar en que un LLM "recuerde" en qué punto del proceso
+está, el proceso se modela como fases explícitas con aprobaciones humanas, artefactos y
+trazabilidad, y una CLI determinista se encarga de hacerlo cumplir.
 
-> Estado: **BETA**.
+> Estado: **BETA** (`v0.1.0-beta`).
 
-## Instalacion rapida
+## Filosofía
 
-**macOS / Linux (Ubuntu):**
+SDD separa dos responsabilidades que normalmente se mezclan:
+
+```text
+Agente o persona: realiza el trabajo cognitivo (redacta, investiga, programa).
+CLI (sdd-cli):    gobierna el proceso (valida reglas, cambia estado, registra evidencia).
+```
+
+El agente hace el trabajo; la CLI valida transiciones, exige los gates humanos, prepara
+los artefactos de cada fase y deja un historial auditable. Así el estado del proceso no
+depende del chat ni de la memoria del modelo.
+
+## El contrato
+
+El corazón del framework es un **contrato declarativo** (`.sdd/`): define los workflows,
+sus fases, dependencias, gates, artefactos y schemas como **datos**, no como código. Los
+workflows se describen en YAML y se validan como un DAG (grafo sin ciclos). Esto hace el
+proceso portable entre agentes y personalizable por proyecto.
+
+## La CLI determinista
+
+`sdd-cli` es el **motor determinista** que interpreta ese contrato. Es un binario nativo
+único escrito en Go —sin Node.js, Python ni ningún runtime— con el contrato embebido.
+No redacta documentos ni programa: crea work items, conoce el estado de cada fase, valida
+transiciones, impide saltos no permitidos, exige aprobaciones humanas, prepara artefactos
+y persiste cada cambio de forma atómica y trazable.
+
+## Instalación rápida
+
+**macOS / Linux (Ubuntu/WSL):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.sh | sh
@@ -22,24 +50,24 @@ irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scr
 ```
 
 Los binarios se publican en [GitHub Releases](https://github.com/matiasezequieldimuro/ssd-workflow/releases).
-Para instalacion manual, build desde fuente o troubleshooting, consulta la
-[**Guia de instalacion**](./docs/10-guia-instalacion.md).
+Guía completa (manual, build desde fuente, troubleshooting) en
+[**docs/GUIA_INSTALACION.md**](./docs/GUIA_INSTALACION.md).
 
 ## Primeros pasos
 
 ```bash
-sdd-cli version                       # verificar instalacion
+sdd-cli version                       # verificar instalación
 sdd-cli init                          # crear la estructura .sdd/ en tu proyecto
 sdd-cli adapters install claude-code  # (opcional) adapter de Claude Code
 sdd-cli --help                        # ver todos los comandos
 ```
 
-## Documentacion
+## Documentación
 
-- [Guia de instalacion](./docs/10-guia-instalacion.md)
-- [Guia tecnica de la CLI](./docs/9-guia-tecnica-cli.md) — comandos, workflows y modelo de estados
-- [Contrato del framework](./docs/3-sdd-framework-spec-doc.md) — escenarios, fases y artefactos
-- [`docs/`](./docs) — diseño, implementacion y auditoria completos
+- [**Guía de instalación**](./docs/GUIA_INSTALACION.md) — instalar, actualizar y desinstalar en cada OS.
+- [**El workflow de SDD**](./docs/SDD_WORKFLOW.md) — escenarios, fases, gates, artefactos y fuentes de verdad.
+- [**Referencia de la CLI**](./docs/CLI.md) — comandos, flags, ejemplos y contrato de salida.
+- [**Changelog**](./CHANGELOG.md) — scope funcional de la BETA.
 
 ## Desarrollo
 
@@ -58,8 +86,6 @@ go test ./...
   push/PR hacia `main` y `development`.
 - **Release** (`.github/workflows/release.yml`): al publicar un tag `v*` compila los
   binarios multiplataforma, genera `SHA256SUMS` y crea el GitHub Release.
-
-Publicar una version:
 
 ```bash
 git tag v0.1.0-beta

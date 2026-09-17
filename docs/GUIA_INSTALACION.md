@@ -1,19 +1,19 @@
-# Guia de instalacion de sdd-cli
+# Guía de instalación de sdd-cli
 
-> Estado: BETA.
+> Estado: **BETA**.
 > Audiencia: usuarios que quieren instalar y usar el motor SDD.
-> Alcance: instalacion del binario `sdd-cli` en Windows, macOS y Linux (Ubuntu/WSL).
+> Alcance: instalación del binario `sdd-cli` en Windows, macOS y Linux (Ubuntu/WSL).
 
 ---
 
-## 1. Que voy a instalar
+## 1. Qué voy a instalar
 
-`sdd-cli` es **un unico binario nativo** escrito en Go. No necesita Node.js, Python
-ni ningun runtime: se descarga un solo ejecutable, se pone en el `PATH` y queda listo.
+`sdd-cli` es **un único binario nativo** escrito en Go. No necesita Node.js, Python
+ni ningún runtime: se descarga un solo ejecutable, se pone en el `PATH` y queda listo.
 
 - No hay instalador con dependencias ni servicios en segundo plano.
-- "Instalar" = copiar el ejecutable a una carpeta que este en tu `PATH`.
-- "Actualizar" = reemplazar ese ejecutable por uno mas nuevo.
+- "Instalar" = copiar el ejecutable a una carpeta que esté en tu `PATH`.
+- "Actualizar" = reemplazar ese ejecutable por uno más nuevo.
 - "Desinstalar" = borrar ese ejecutable.
 
 Los binarios se publican en **GitHub Releases**:
@@ -21,9 +21,9 @@ Los binarios se publican en **GitHub Releases**:
 
 ---
 
-## 2. Que archivo me corresponde
+## 2. Qué archivo me corresponde
 
-Elegi el archivo segun tu sistema operativo y arquitectura:
+Elegí el archivo según tu sistema operativo y arquitectura:
 
 | Sistema operativo | Arquitectura | Archivo a descargar |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ Elegi el archivo segun tu sistema operativo y arquitectura:
 `<version>` es la etiqueta del release, por ejemplo `v0.1.0-beta`.
 Cada release incluye `SHA256SUMS` para verificar la integridad.
 
-Como saber tu arquitectura:
+Cómo saber tu arquitectura:
 
 ```bash
 # macOS / Linux
@@ -49,17 +49,17 @@ $env:PROCESSOR_ARCHITECTURE   # AMD64 -> amd64
 
 ---
 
-## 3. Metodos de instalacion
+## 3. Métodos de instalación
 
-Hay tres caminos. Elegi **uno**:
+Hay tres caminos. Elegí **uno**:
 
-- **3.1 Rapida (recomendada):** un comando, resuelve todo automaticamente.
-- **3.2 Manual desde Releases:** descargas el archivo vos mismo.
-- **3.3 Compilar desde fuente:** requiere Go, util para desarrollo.
+- **3.1 Rápida (recomendada):** un comando, resuelve todo automáticamente.
+- **3.2 Manual desde Releases:** descargás el archivo vos mismo.
+- **3.3 Compilar desde fuente:** requiere Go, útil para desarrollo.
 
-### 3.1. Instalacion rapida (recomendada)
+### 3.1. Instalación rápida (recomendada)
 
-Detecta tu plataforma, descarga el binario correcto del ultimo release, verifica el
+Detecta tu plataforma, descarga el binario correcto del último release, verifica el
 checksum y lo instala en el `PATH`.
 
 **macOS y Linux (Ubuntu/WSL):**
@@ -78,28 +78,28 @@ Opciones (variables de entorno):
 
 | Variable | Efecto |
 | --- | --- |
-| `SDD_VERSION` | Instala una version especifica (ej. `v0.1.0-beta`). Default: ultimo release. |
+| `SDD_VERSION` | Instala una versión específica (ej. `v0.1.0-beta`). Default: último release. |
 | `SDD_INSTALL_DIR` | Carpeta destino. Default: si ya hay un `sdd-cli` en el `PATH`, lo sobrescribe en su lugar; si no, `/usr/local/bin` (o `~/.local/bin`) en Unix y `%LOCALAPPDATA%\Programs\sdd-cli` en Windows. |
 
 ```bash
-# Ejemplo: version fija y carpeta propia
+# Ejemplo: versión fija y carpeta propia
 SDD_VERSION=v0.1.0-beta SDD_INSTALL_DIR="$HOME/.local/bin" \
   curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.sh | sh
 ```
 
-### 3.2. Instalacion manual desde Releases
+### 3.2. Instalación manual desde Releases
 
-Usa este metodo si preferis no ejecutar el script. Es el mismo para instalar por
+Usá este método si preferís no ejecutar el script. Es el mismo para instalar por
 primera vez o para actualizar (sobrescribe el binario).
 
 > **Tip:** definimos `VERSION` una sola vez al principio y el resto de los comandos
-> se copian y pegan tal cual. Cambia solo esa linea por la version que quieras
-> (mira la ultima en la [pagina de Releases](https://github.com/matiasezequieldimuro/ssd-workflow/releases)).
+> se copian y pegan tal cual. Cambiá solo esa línea por la versión que quieras
+> (mirá la última en la [página de Releases](https://github.com/matiasezequieldimuro/ssd-workflow/releases)).
 
 **Linux (Ubuntu / WSL) — amd64:**
 
 ```bash
-VERSION="v0.1.0-beta"     # <-- unica linea a ajustar
+VERSION="v0.1.0-beta"     # <-- única línea a ajustar
 
 cd /tmp
 curl -fsSLO "https://github.com/matiasezequieldimuro/ssd-workflow/releases/download/${VERSION}/sdd-cli_${VERSION}_linux_amd64.tar.gz"
@@ -108,7 +108,7 @@ curl -fsSLO "https://github.com/matiasezequieldimuro/ssd-workflow/releases/downl
 # Verificar integridad (debe imprimir: ...linux_amd64.tar.gz: OK)
 sha256sum -c SHA256SUMS --ignore-missing
 
-# Instalar (sobrescribe cualquier version previa en esa ruta)
+# Instalar (sobrescribe cualquier versión previa en esa ruta)
 tar -xzf "sdd-cli_${VERSION}_linux_amd64.tar.gz"
 sudo install -m 0755 sdd-cli /usr/local/bin/sdd-cli
 
@@ -120,7 +120,7 @@ sdd-cli version
 
 ```bash
 VERSION="v0.1.0-beta"
-ARCH="arm64"              # Intel: usa "amd64"
+ARCH="arm64"              # Intel: usá "amd64"
 
 cd /tmp
 curl -fsSLO "https://github.com/matiasezequieldimuro/ssd-workflow/releases/download/${VERSION}/sdd-cli_${VERSION}_darwin_${ARCH}.tar.gz"
@@ -131,7 +131,7 @@ shasum -a 256 -c SHA256SUMS --ignore-missing
 tar -xzf "sdd-cli_${VERSION}_darwin_${ARCH}.tar.gz"
 sudo install -m 0755 sdd-cli /usr/local/bin/sdd-cli
 
-# macOS: el binario no esta firmado por Apple; autorizalo si Gatekeeper lo bloquea
+# macOS: el binario no está firmado por Apple; autorizalo si Gatekeeper lo bloquea
 xattr -d com.apple.quarantine /usr/local/bin/sdd-cli 2>/dev/null || true
 
 hash -r
@@ -155,7 +155,7 @@ $userPath = [Environment]::GetEnvironmentVariable('Path','User')
 if ($userPath -notlike "*$Dir*") {
     [Environment]::SetEnvironmentVariable('Path', "$userPath;$Dir", 'User')
 }
-# Abri una NUEVA terminal y luego:
+# Abrí una NUEVA terminal y luego:
 sdd-cli version
 ```
 
@@ -174,26 +174,26 @@ sudo install -m 0755 sdd-cli /usr/local/bin/sdd-cli   # opcional: dejarlo en el 
 sdd-cli version
 ```
 
-> **Cuidado al mezclar `go install` con la instalacion por curl/release.** `go install`
+> **Cuidado al mezclar `go install` con la instalación por curl/release.** `go install`
 > deja el binario en `~/go/bin/sdd-cli` (tu `GOBIN`/`GOPATH/bin`), mientras que el
-> instalador rapido o la descarga manual lo dejan en `/usr/local/bin` o `~/.local/bin`.
-> Si tenes ambos, **el que gana es el que aparece primero en tu `PATH`**, no el que
-> instalaste ultimo: por eso podes "instalar la version nueva" y seguir ejecutando una
-> vieja. Ademas, un binario hecho con `go install`/`go build` sin `-ldflags` reporta
-> `version = dev`, asi que no siempre distinguis cual estas corriendo. Recomendaciones:
-> para desarrollo usa un solo camino (por ejemplo `go run .` o `go build -o /tmp/sdd .`
-> e invocalo por ruta), o mantene dev y release en carpetas separadas y controla el
-> orden del `PATH`. Ante la duda, corre `type -a sdd-cli` (macOS/Linux) o
+> instalador rápido o la descarga manual lo dejan en `/usr/local/bin` o `~/.local/bin`.
+> Si tenés ambos, **el que gana es el que aparece primero en tu `PATH`**, no el que
+> instalaste último: por eso podés "instalar la versión nueva" y seguir ejecutando una
+> vieja. Además, un binario hecho con `go install`/`go build` sin `-ldflags` reporta
+> `version = dev`, así que no siempre distinguís cuál estás corriendo. Recomendaciones:
+> para desarrollo usá un solo camino (por ejemplo `go run .` o `go build -o /tmp/sdd .`
+> e invocalo por ruta), o mantené dev y release en carpetas separadas y controlá el
+> orden del `PATH`. Ante la duda, corré `type -a sdd-cli` (macOS/Linux) o
 > `Get-Command sdd-cli -All` (Windows) para ver todas las copias, y `sdd-cli version`
-> para confirmar cual se ejecuta. El instalador rapido, cuando ya existe un `sdd-cli`
+> para confirmar cuál se ejecuta. El instalador rápido, cuando ya existe un `sdd-cli`
 > en el `PATH`, sobrescribe esa copia activa y avisa si detecta otras.
 
 ---
 
-## 4. Verificar la instalacion
+## 4. Verificar la instalación
 
 ```bash
-sdd-cli version      # muestra version, commit y fecha de compilacion
+sdd-cli version      # muestra versión, commit y fecha de compilación
 sdd-cli --help       # lista los comandos disponibles
 ```
 
@@ -203,7 +203,7 @@ Salida esperada de `sdd-cli version`:
 sdd-cli v0.1.0-beta (commit 91e5b13, built 2026-09-16T15:03:14Z)
 ```
 
-Para confirmar que ejecutable se esta usando y detectar copias viejas:
+Para confirmar qué ejecutable se está usando y detectar copias viejas:
 
 ```bash
 type -a sdd-cli      # macOS/Linux: lista TODAS las copias en el PATH, en orden
@@ -217,10 +217,10 @@ Get-Command sdd-cli -All   # Windows
 
 ## 5. Reinstalar / actualizar
 
-Actualizar es simplemente **reemplazar el binario** por uno mas nuevo.
+Actualizar es simplemente **reemplazar el binario** por uno más nuevo.
 
-- **Si instalaste con el metodo rapido (3.1):** volve a ejecutar el mismo comando;
-  sobrescribe el binario con el ultimo release.
+- **Si instalaste con el método rápido (3.1):** volvé a ejecutar el mismo comando;
+  sobrescribe el binario con el último release.
 
   ```bash
   # macOS / Linux
@@ -232,19 +232,19 @@ Actualizar es simplemente **reemplazar el binario** por uno mas nuevo.
   irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.ps1 | iex
   ```
 
-- **Si instalaste manual (3.2):** repeti los pasos con la nueva `VERSION`. El
+- **Si instalaste manual (3.2):** repetí los pasos con la nueva `VERSION`. El
   comando `install -m 0755 ...` sobrescribe el binario existente en su lugar.
 
-> **Importante:** despues de actualizar corre `hash -r` (bash/zsh) y verifica con
+> **Importante:** después de actualizar corré `hash -r` (bash/zsh) y verificá con
 > `type -a sdd-cli` que no haya quedado **otra copia vieja antes en el PATH**. Si la
-> hay, borrala (ver seccion 6). Es la causa mas comun de "ejecute la version nueva
-> pero sigue comportandose como la vieja".
+> hay, borrala (ver sección 6). Es la causa más común de "ejecuté la versión nueva
+> pero sigue comportándose como la vieja".
 
 ---
 
 ## 6. Desinstalar
 
-1. Encontra donde esta(n) instalado(s):
+1. Encontrá dónde está(n) instalado(s):
 
    ```bash
    type -a sdd-cli          # macOS/Linux
@@ -253,10 +253,10 @@ Actualizar es simplemente **reemplazar el binario** por uno mas nuevo.
    Get-Command sdd-cli -All  # Windows
    ```
 
-2. Borra el/los ejecutable(s):
+2. Borrá el/los ejecutable(s):
 
    ```bash
-   # macOS / Linux (una linea por cada ruta que haya reportado type -a)
+   # macOS / Linux (una línea por cada ruta que haya reportado type -a)
    sudo rm /usr/local/bin/sdd-cli
    rm ~/.local/bin/sdd-cli 2>/dev/null || true
    ```
@@ -266,12 +266,12 @@ Actualizar es simplemente **reemplazar el binario** por uno mas nuevo.
    Remove-Item "$env:LOCALAPPDATA\Programs\sdd-cli\sdd-cli.exe"
    ```
 
-3. (Opcional) Quita la carpeta del `PATH` si la habias agregado a mano
-   (Windows: "Editar las variables de entorno del sistema"; Unix: la linea
+3. (Opcional) Quitá la carpeta del `PATH` si la habías agregado a mano
+   (Windows: "Editar las variables de entorno del sistema"; Unix: la línea
    `export PATH=...` en tu `~/.bashrc` / `~/.zshrc`).
 
 > Desinstalar el binario **no** borra las carpetas `.sdd/` de tus proyectos; esas
-> son datos tuyos y se eliminan aparte si asi lo queres.
+> son datos tuyos y se eliminan aparte si así lo querés.
 
 ---
 
@@ -285,19 +285,21 @@ sdd-cli adapters install claude-code  # (opcional) adapter de Claude Code
 sdd-cli --help                        # ver todos los comandos
 ```
 
-Consulta la [Guia tecnica de la CLI](./9-guia-tecnica-cli.md) para el detalle de
-comandos, workflows y el modelo de estados.
+Seguí con:
+
+- [**CLI.md**](./CLI.md) — referencia completa de comandos, flags y ejemplos.
+- [**SDD_WORKFLOW.md**](./SDD_WORKFLOW.md) — escenarios, fases, artefactos y fuentes de verdad.
 
 ---
 
-## 8. Solucion de problemas
+## 8. Solución de problemas
 
-| Sintoma | Causa probable | Solucion |
+| Síntoma | Causa probable | Solución |
 | --- | --- | --- |
-| `sdd-cli: command not found` | La carpeta de instalacion no esta en el `PATH` | Agregala al `PATH` (ver 3.1/3.2) y reabri la terminal |
-| `unknown command "version"` o comportamiento viejo tras actualizar | Hay un binario **viejo antes en el PATH** | `type -a sdd-cli` para ubicarlo, borralo (seccion 6) y corre `hash -r` |
-| macOS bloquea el binario | Gatekeeper / quarantine (no esta firmado) | `xattr -d com.apple.quarantine <ruta>/sdd-cli` |
-| PowerShell no ejecuta el script | Politica de ejecucion | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
-| `404 Not Found` al descargar | `VERSION` incorrecta o release inexistente | Copia la etiqueta exacta desde la pagina de Releases |
-| `could not determine the latest release tag` | Aun no hay releases o problema de red | Especifica `SDD_VERSION` manualmente |
-| Checksum mismatch | Descarga corrupta | Reintenta la descarga |
+| `sdd-cli: command not found` | La carpeta de instalación no está en el `PATH` | Agregala al `PATH` (ver 3.1/3.2) y reabrí la terminal |
+| `unknown command "version"` o comportamiento viejo tras actualizar | Hay un binario **viejo antes en el PATH** | `type -a sdd-cli` para ubicarlo, borralo (sección 6) y corré `hash -r` |
+| macOS bloquea el binario | Gatekeeper / quarantine (no está firmado) | `xattr -d com.apple.quarantine <ruta>/sdd-cli` |
+| PowerShell no ejecuta el script | Política de ejecución | `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
+| `404 Not Found` al descargar | `VERSION` incorrecta o release inexistente | Copiá la etiqueta exacta desde la página de Releases |
+| `could not determine the latest release tag` | Aún no hay releases o problema de red | Especificá `SDD_VERSION` manualmente |
+| Checksum mismatch | Descarga corrupta | Reintentá la descarga |
