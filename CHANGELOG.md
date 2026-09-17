@@ -65,10 +65,6 @@ El objetivo de esta BETA es validar el núcleo del motor y su ergonomía con uso
 - Operación de retrabajo semántico e invalidación transitoria (`superseded` no se
   propaga automáticamente hacia atrás; hoy requiere intervención manual del manifest).
 - Comando de cancelación explícita (`cancelled` está modelado pero sin comando público).
-- Autorización de efectos externos (commit/push/PR/tickets/deploys) desde el motor: el
-  workflow solo declara efectos potenciales; los ejecuta el agente/adapter.
-- Observabilidad de tokens y costos, memoria (Engram), navegación de código (CodeGraph)
-  e integraciones con GitHub/Azure DevOps.
-- Prompts del adapter Claude Code aún en maduración mediante uso real.
+- Observabilidad de tokens y costos, memoria (Engram) y navegación de código (CodeGraph).
 
 [0.1.0-beta]: https://github.com/matiasezequieldimuro/ssd-workflow/releases/tag/v0.1.0-beta
