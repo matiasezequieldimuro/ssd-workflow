@@ -12,13 +12,13 @@ estado. Es un binario nativo autocontenido escrito en Go, sin runtime externo.
 **macOS / Linux (Ubuntu):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.ps1 | iex
 ```
 
 Los binarios se publican en [GitHub Releases](https://github.com/matiasezequieldimuro/ssd-workflow/releases).

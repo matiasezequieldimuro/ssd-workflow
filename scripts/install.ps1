@@ -7,7 +7,7 @@
     installs it and adds the install directory to the user PATH.
 
 .EXAMPLE
-    irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.ps1 | iex
+    irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.ps1 | iex
 
 .NOTES
     Environment overrides:

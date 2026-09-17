@@ -2,7 +2,7 @@
 # sdd-cli installer for macOS and Linux.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.sh | sh
 #
 # Environment overrides:
 #   SDD_VERSION      Install a specific tag (e.g. v0.1.0-beta). Default: latest release.

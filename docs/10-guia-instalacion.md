@@ -65,13 +65,13 @@ checksum y lo instala en el `PATH`.
 **macOS y Linux (Ubuntu/WSL):**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.sh | sh
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.ps1 | iex
 ```
 
 Opciones (variables de entorno):
@@ -84,7 +84,7 @@ Opciones (variables de entorno):
 ```bash
 # Ejemplo: version fija y carpeta propia
 SDD_VERSION=v0.1.0-beta SDD_INSTALL_DIR="$HOME/.local/bin" \
-  curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.sh | sh
 ```
 
 ### 3.2. Instalacion manual desde Releases
@@ -224,12 +224,12 @@ Actualizar es simplemente **reemplazar el binario** por uno mas nuevo.
 
   ```bash
   # macOS / Linux
-  curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.sh | sh
   ```
 
   ```powershell
   # Windows
-  irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/install.ps1 | iex
+  irm https://raw.githubusercontent.com/matiasezequieldimuro/ssd-workflow/main/scripts/install.ps1 | iex
   ```
 
 - **Si instalaste manual (3.2):** repeti los pasos con la nueva `VERSION`. El
