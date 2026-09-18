@@ -45,7 +45,8 @@ phases:
     requires: [human-code-review]
     produces: [archive-record]
     procedure: archive
-    approval: optional
+    approval: none
+    optional: true
     effects: [changelog_write, git_commit, git_push, pull_request]
 
 artifacts:

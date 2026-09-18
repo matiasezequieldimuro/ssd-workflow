@@ -2,13 +2,9 @@ package usecases
 
 import (
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"time"
 
 	"sdd-cli/internal/domain"
-	"sdd-cli/internal/infra"
 	"sdd-cli/internal/ports"
 )
 
@@ -20,179 +16,181 @@ type StartWorkItemInput struct {
 	FromArtifact string
 	Phase        string
 	Actor        domain.Actor
+	OperationID  string
 }
 
 type StartWorkItemUseCase struct {
-	workItemRepo ports.WorkItemRepository
+	workItemRepo ports.WorkItemCreationRepository
 	workflowRepo ports.WorkflowRepository
+	configRepo   ports.ConfigRepository
+	artifacts    ports.ArtifactService
+	clock        ports.Clock
+	idGenerator  ports.IDGenerator
 }
 
-func NewStartWorkItemUseCase(wiRepo ports.WorkItemRepository, wfRepo ports.WorkflowRepository) *StartWorkItemUseCase {
+func NewStartWorkItemUseCase(
+	wiRepo ports.WorkItemCreationRepository,
+	wfRepo ports.WorkflowRepository,
+	configRepo ports.ConfigRepository,
+	artifacts ports.ArtifactService,
+	clock ports.Clock,
+	idGenerator ports.IDGenerator,
+) *StartWorkItemUseCase {
 	return &StartWorkItemUseCase{
 		workItemRepo: wiRepo,
 		workflowRepo: wfRepo,
+		configRepo:   configRepo,
+		artifacts:    artifacts,
+		clock:        clock,
+		idGenerator:  idGenerator,
 	}
 }
 
 func (uc *StartWorkItemUseCase) Execute(baseDir string, in StartWorkItemInput) (*domain.WorkItem, error) {
-	if uc.workItemRepo.WorkItemExists(baseDir, in.ID) {
+	if err := domain.ValidateIdentifier("work item id", in.ID); err != nil {
+		return nil, err
+	}
+	if err := domain.ValidateActor(in.Actor); err != nil {
+		return nil, err
+	}
+	if err := domain.ValidateOperationID(in.OperationID); err != nil {
+		return nil, err
+	}
+	if in.Title == "" {
+		return nil, fmt.Errorf("%w: title cannot be empty", domain.ErrInvalidWorkItem)
+	}
+	if (in.FromArtifact == "") != (in.Phase == "") {
+		return nil, fmt.Errorf("%w: --from-artifact and --phase must be used together", domain.ErrInvalidExternalArtifact)
+	}
+	exists, err := uc.workItemRepo.WorkItemExists(baseDir, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		if in.OperationID != "" {
+			applied, err := operationApplied(baseDir, in.ID, in.OperationID, uc.workItemRepo)
+			if err != nil {
+				return nil, err
+			}
+			if applied {
+				return uc.workItemRepo.GetWorkItem(baseDir, in.ID)
+			}
+		}
 		return nil, domain.ErrWorkItemAlreadyExists
 	}
 
-	wf, err := uc.workflowRepo.GetWorkflow(baseDir, in.WorkflowID)
+	workflowID := in.WorkflowID
+	if workflowID == "" {
+		config, err := uc.configRepo.GetConfig(baseDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load default workflow: %w", err)
+		}
+		workflowID = config.Defaults.Workflow
+	}
+	wf, err := uc.workflowRepo.GetWorkflow(baseDir, workflowID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid workflow: %w", err)
 	}
 
-	entryPhase := wf.Phases[0].ID
-	if in.FromArtifact != "" && in.Phase != "" {
+	var (
+		externalSource     ports.ExternalArtifact
+		externalArtifactID string
+	)
+	entryPhase, err := wf.EntryPhaseFor("user_prompt")
+	if in.FromArtifact != "" {
 		entryPhase = in.Phase
+		externalArtifactID, err = wf.ExternalArtifactForEntry(entryPhase)
+		if err != nil {
+			return nil, err
+		}
+		externalSource, err = uc.artifacts.ResolveExternalArtifact(in.FromArtifact)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	phasesState := make(map[string]domain.PhaseState)
-
+	createdAt := uc.clock.Now().UTC().Format(time.RFC3339)
+	var externalReference *domain.ExternalArtifactReference
 	if in.FromArtifact != "" {
-		// Bypass mode
-		foundEntry := false
-		for _, ph := range wf.Phases {
-			if ph.ID == in.Phase {
-				foundEntry = true
-				artPath := fmt.Sprintf("artifacts/%s.md", ph.ID)
-				phasesState[ph.ID] = domain.PhaseState{
-					Status:   "accepted",
-					Artifact: artPath,
-				}
-				continue
-			}
-
-			if !foundEntry {
-				phasesState[ph.ID] = domain.PhaseState{
-					Status: "not_applicable",
-				}
-			} else {
-				// The phase immediately following entry phase becomes ready
-				if len(phasesState) == countPhasesUntil(wf.Phases, in.Phase)+1 {
-					phasesState[ph.ID] = domain.PhaseState{
-						Status: "ready",
-					}
-				} else {
-					phasesState[ph.ID] = domain.PhaseState{
-						Status: "blocked",
-					}
-				}
-			}
-		}
-	} else {
-		// Standard start mode
-		for i, ph := range wf.Phases {
-			artPath := fmt.Sprintf("artifacts/%s.md", ph.ID)
-			if i == 0 {
-				phasesState[ph.ID] = domain.PhaseState{
-					Status:   "in_progress",
-					Artifact: artPath,
-				}
-			} else {
-				phasesState[ph.ID] = domain.PhaseState{
-					Status: "blocked",
-				}
-			}
+		externalReference = &domain.ExternalArtifactReference{
+			Artifact: externalArtifactID,
+			Path:     externalSource.Path,
+			SHA256:   externalSource.SHA256,
 		}
 	}
-
-	inputSource := "user_prompt"
-	if in.FromArtifact != "" {
-		inputSource = "external_artifact"
+	item, mutation, err := domain.NewWorkItem(wf, domain.NewWorkItemParams{
+		ID:               in.ID,
+		Title:            in.Title,
+		Summary:          in.Summary,
+		EntryPhase:       entryPhase,
+		CreatedAt:        createdAt,
+		CreatedBy:        in.Actor,
+		ExternalArtifact: externalReference,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create work item: %w", err)
 	}
 
-	item := &domain.WorkItem{
-		SchemaVersion: "0.1",
-		Kind:          "work-item",
-		ID:            in.ID,
-		Title:         in.Title,
-		Type:          wf.WorkItemType,
-		Status:        "active",
-		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
-		CreatedBy:     &in.Actor,
-		Workflow: domain.WorkItemWorkflow{
-			ID:         wf.ID,
-			Version:    wf.SchemaVersion,
-			EntryPhase: entryPhase,
-		},
-		Input: domain.WorkItemInput{
-			Source:  inputSource,
-			Summary: in.Summary,
-		},
-		Phases: phasesState,
-		Traceability: domain.Traceability{
-			Events: "events.jsonl",
-		},
-	}
-
-	if err := uc.workItemRepo.SaveWorkItem(baseDir, item); err != nil {
-		return nil, fmt.Errorf("failed to save work item: %w", err)
-	}
-
-	// Create artifacts for the entry phase
-	artifactMgr := infra.NewArtifactManager()
 	templateVars := map[string]string{
 		"title":      in.Title,
 		"id":         in.ID,
 		"created_at": item.CreatedAt,
 		"type":       item.Type,
 	}
-	if err := artifactMgr.CreateArtifactsForPhase(baseDir, wf, entryPhase, in.ID, templateVars); err != nil {
-		return nil, fmt.Errorf("failed to create artifacts for entry phase: %w", err)
+	artifacts, err := uc.artifacts.PrepareArtifactsForPhase(baseDir, wf, entryPhase, in.ID, templateVars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare artifacts for entry phase: %w", err)
 	}
 
-	// Copy external artifact if provided
 	if in.FromArtifact != "" {
-		targetArtifactPath := filepath.Join(baseDir, ".sdd", "work-items", "active", in.ID, "artifacts", fmt.Sprintf("%s.md", in.Phase))
-		if err := copyFile(in.FromArtifact, targetArtifactPath); err != nil {
-			return nil, fmt.Errorf("failed to copy external artifact: %w", err)
+		artifacts, err = uc.artifacts.ImportExternalArtifact(
+			wf,
+			entryPhase,
+			externalArtifactID,
+			externalSource,
+			artifacts,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to import external artifact: %w", err)
 		}
-
-		bypassEvent := domain.NewEvent(in.ID, "phase_bypassed_by_external_input", in.Actor, map[string]interface{}{
-			"phase":             in.Phase,
-			"external_artifact": in.FromArtifact,
-		})
-		_ = uc.workItemRepo.AppendEvent(baseDir, in.ID, bypassEvent)
 	}
 
-	createEvent := domain.NewEvent(in.ID, "work_item.created", in.Actor, map[string]interface{}{
+	createdEvent, err := newOperationEvent(in.ID, "work_item.created", in.Actor, map[string]interface{}{
 		"workflow": wf.ID,
 		"title":    in.Title,
-	})
-	_ = uc.workItemRepo.AppendEvent(baseDir, in.ID, createEvent)
-
-	return item, nil
-}
-
-func countPhasesUntil(phases []domain.WorkflowPhase, phaseID string) int {
-	for i, ph := range phases {
-		if ph.ID == phaseID {
-			return i
+	}, in.OperationID, uc.clock, uc.idGenerator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate creation event: %w", err)
+	}
+	events := []domain.Event{createdEvent}
+	if in.FromArtifact != "" {
+		bypassEvent, err := newOperationEvent(in.ID, "phase.bypassed_by_external_input", in.Actor, map[string]interface{}{
+			"phase":             in.Phase,
+			"external_artifact": externalSource.Path,
+			"sha256":            externalSource.SHA256,
+		}, in.OperationID, uc.clock, uc.idGenerator)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate external input event: %w", err)
 		}
+		events = append(events, bypassEvent)
 	}
-	return 0
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
+	transitionEvents, err := phaseMutationEvents(
+		in.ID,
+		mutation,
+		in.Actor,
+		"work_item_started",
+		in.OperationID,
+		uc.clock,
+		uc.idGenerator,
+	)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer in.Close()
+	events = append(events, transitionEvents...)
 
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-
-	out, err := os.Create(dst)
+	persisted, err := commitWorkItem(baseDir, uc.workItemRepo, item, artifacts, events, in.OperationID)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to commit work item: %w", err)
 	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
+	return persisted, nil
 }

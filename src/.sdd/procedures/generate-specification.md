@@ -11,4 +11,4 @@ Definir comportamiento verificable a partir del PRD o CR aprobado.
 
 ## Resultado
 
-Crear `artifacts/specification.md` con requisitos, escenarios, reglas y trazabilidad. Para un CR, expresar los deltas `added`, `modified` y `removed`.
+Crear `artifacts/specification.md` (desde la plantilla) con requisitos, escenarios, reglas y trazabilidad. Para un CR, expresar los deltas `added`, `modified` y `removed`.

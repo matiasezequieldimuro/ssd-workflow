@@ -2,6 +2,7 @@
   "schema_version": "0.1",
   "kind": "work-item",
   "id": "cr-003-billing-info",
+  "revision": 2,
   "title": "Agregar info de facturación en perfil",
   "type": "change-request",
   "status": "active",

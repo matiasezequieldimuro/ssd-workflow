@@ -2,6 +2,7 @@
   "schema_version": "0.1",
   "kind": "work-item",
   "id": "bug-002-crash-on-refresh",
+  "revision": 3,
   "title": "Crash al refrescar la pantalla de pago",
   "type": "bug",
   "status": "active",

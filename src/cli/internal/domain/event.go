@@ -2,9 +2,18 @@ package domain
 
 import "time"
 
+type ActorKind string
+
+const (
+	ActorHuman  ActorKind = "human"
+	ActorAgent  ActorKind = "agent"
+	ActorCLI    ActorKind = "cli"
+	ActorSystem ActorKind = "system"
+)
+
 type Actor struct {
-	Kind string `json:"kind" yaml:"kind"` // human, agent, cli, system
-	ID   string `json:"id" yaml:"id"`
+	Kind ActorKind `json:"kind" yaml:"kind"`
+	ID   string    `json:"id" yaml:"id"`
 }
 
 type Event struct {
@@ -18,11 +27,11 @@ type Event struct {
 	CorrelationID string                 `json:"correlation_id,omitempty" yaml:"correlation_id,omitempty"`
 }
 
-func NewEvent(workItemID, eventType string, actor Actor, data map[string]interface{}) Event {
+func NewEvent(id string, at time.Time, workItemID, eventType string, actor Actor, data map[string]interface{}) Event {
 	return Event{
 		SchemaVersion: "0.1",
-		ID:            "evt_" + time.Now().Format("20060102150405"),
-		At:            time.Now().UTC().Format(time.RFC3339),
+		ID:            id,
+		At:            at.UTC().Format(time.RFC3339Nano),
 		WorkItem:      workItemID,
 		Type:          eventType,
 		Actor:         actor,

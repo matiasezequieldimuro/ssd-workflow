@@ -2,6 +2,7 @@
   "schema_version": "0.1",
   "kind": "work-item",
   "id": "feat-001-coupons",
+  "revision": 1,
   "title": "Aplicar cupones de descuento en checkout",
   "type": "feature",
   "status": "active",

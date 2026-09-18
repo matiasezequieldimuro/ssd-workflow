@@ -1,17 +1,26 @@
 package domain
 
+type ApprovalPolicy string
+
+const (
+	ApprovalNone     ApprovalPolicy = "none"
+	ApprovalRequired ApprovalPolicy = "required"
+	ApprovalOptional ApprovalPolicy = "optional"
+)
+
 type EntryPoint struct {
 	Phase   string   `json:"phase" yaml:"phase"`
 	Accepts []string `json:"accepts" yaml:"accepts"`
 }
 
 type WorkflowPhase struct {
-	ID        string   `json:"id" yaml:"id"`
-	Requires  []string `json:"requires,omitempty" yaml:"requires,omitempty"`
-	Produces  []string `json:"produces,omitempty" yaml:"produces,omitempty"`
-	Procedure string   `json:"procedure,omitempty" yaml:"procedure,omitempty"`
-	Approval  string   `json:"approval" yaml:"approval"` // none, required, optional
-	Effects   []string `json:"effects,omitempty" yaml:"effects,omitempty"`
+	ID        string         `json:"id" yaml:"id"`
+	Requires  []string       `json:"requires,omitempty" yaml:"requires,omitempty"`
+	Produces  []string       `json:"produces,omitempty" yaml:"produces,omitempty"`
+	Procedure string         `json:"procedure,omitempty" yaml:"procedure,omitempty"`
+	Approval  ApprovalPolicy `json:"approval" yaml:"approval"`
+	Optional  bool           `json:"optional,omitempty" yaml:"optional,omitempty"`
+	Effects   []string       `json:"effects,omitempty" yaml:"effects,omitempty"`
 }
 
 type WorkflowArtifact struct {
@@ -29,4 +38,29 @@ type Workflow struct {
 	EntryPoints   []EntryPoint                `json:"entry_points,omitempty" yaml:"entry_points,omitempty"`
 	Phases        []WorkflowPhase             `json:"phases" yaml:"phases"`
 	Artifacts     map[string]WorkflowArtifact `json:"artifacts" yaml:"artifacts"`
+}
+
+func (w *Workflow) Phase(id string) (WorkflowPhase, bool) {
+	for _, phase := range w.Phases {
+		if phase.ID == id {
+			return phase, true
+		}
+	}
+
+	return WorkflowPhase{}, false
+}
+
+func (w *Workflow) ArtifactPathForPhase(phaseID string) string {
+	phase, ok := w.Phase(phaseID)
+	if !ok {
+		return ""
+	}
+
+	for _, artifactID := range phase.Produces {
+		if artifact, exists := w.Artifacts[artifactID]; exists {
+			return artifact.Path
+		}
+	}
+
+	return ""
 }

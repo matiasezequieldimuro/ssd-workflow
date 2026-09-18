@@ -1,7 +1,13 @@
 package main
 
-import "sdd-cli/cmd"
+import (
+	"os"
+
+	"sdd-cli/cmd"
+)
 
 func main() {
-	cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
